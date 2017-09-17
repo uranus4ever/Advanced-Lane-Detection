@@ -3,7 +3,7 @@ The goals / steps of this project are the following:
 
 1. Compute the camera calibration matrix and distortion coefficients given a set of chessboard images. - Done
 2. Apply a distortion correction to raw images. - Done
-3. Use color transforms, gradients, etc., to create a thresholded binary image.
+3. Use color transforms, gradients, etc., to create a thresholded binary image. - Done
 4. Apply a perspective transform to rectify binary image ("birds-eye view").
 5. Detect lane pixels and fit to find the lane boundary.
 6. Determine the curvature of the lane and vehicle position with respect to center.
@@ -107,13 +107,16 @@ plt.show()
 image = mpimg.imread('./test_images/test5.jpg')
 # Edit this function to create your own pipeline.
 def pipeline(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
-    img = np.copy(img)
+    # Note: img is the undistorted image
+    # img = np.copy(img)
     # Convert to HLS color space and separate the V channel
-    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS).astype(np.float)
-    l_channel = hls[:, :, 1]
+    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
     s_channel = hls[:, :, 2]
+     # Grayscale image
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
     # Sobel x
-    sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0)  # Take the derivative in x
+    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0)  # Take the derivative in x
     abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
     scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
 
@@ -124,11 +127,15 @@ def pipeline(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     # Threshold color channel
     s_binary = np.zeros_like(s_channel)
     s_binary[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
-    # Stack each channel
-    # Note color_binary[:, :, 0] is all 0s, effectively an all black image. It might
-    # be beneficial to replace this channel with something else.
+    # Stack each channel to view their individual contributions in green and blue respectively
+    # This returns a stack of the two binary images, whose components you can see as different colors
     color_binary = np.dstack((np.zeros_like(sxbinary), sxbinary, s_binary)) * 255
-    return color_binary
+
+    # Combine the two binary thresholds
+    combined_binary = np.zeros_like(sxbinary)
+    combined_binary[(s_binary == 1) | (sxbinary == 1)] = 1
+
+    return combined_binary
 
 result = pipeline(image)
 
