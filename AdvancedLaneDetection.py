@@ -18,8 +18,12 @@ import glob
 import pickle
 import matplotlib.image as mpimg
 
-def warper(img, src, dst):
+image = mpimg.imread('./test_images/straight_lines2.jpg')
 
+# ##############################
+# Perspective Transformation   #
+# ##############################
+def warper(img, src, dst):
     # Compute and apply perpective transform
     img_size = (img.shape[1], img.shape[0])
     M = cv2.getPerspectiveTransform(src, dst)
@@ -27,6 +31,30 @@ def warper(img, src, dst):
 
     return warped
 
+def draw_lines(img, points, color=(255,0,0), thickness=2):
+    points_t = list(map(list, points))
+    lines = [[points_t[0] + points_t[1]], \
+            [points_t[1] + points_t[2]], \
+            [points_t[2] + points_t[3]], \
+            [points_t[3] + points_t[0]]]
+    for line in lines:
+        for x1, y1, x2, y2 in line:
+            cv2.line(img, (x1, y1), (x2, y2), color, thickness)
+
+img_size = [image.shape[1], image.shape[0]]
+src = np.float32(
+    [[(img_size[0] / 2) - 70, img_size[1] / 2 + 100],
+    [((img_size[0] / 6) - 30), img_size[1] - 60],
+    [(img_size[0] * 5 / 6) - 30, img_size[1] - 60],
+    [(img_size[0] / 2 + 65), img_size[1] / 2 + 100]])
+dst = np.float32(
+    [[(img_size[0] / 4), 0],
+     [(img_size[0] / 4), img_size[1] - 60],
+     [(img_size[0] * 3/4), img_size[1] - 60],
+     [(img_size[0] * 3/4), 0]])
+warped = warper(image, src, dst)
+draw_lines(image, src)
+draw_lines(warped, dst)
 '''
 # ####################
 # Camera Calibration #
@@ -103,9 +131,6 @@ plt.show()
 # ####################
 # Color & Gradient   #
 # ####################
-
-image = mpimg.imread('./test_images/test5.jpg')
-# Edit this function to create your own pipeline.
 def pipeline(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     # Note: img is the undistorted image
     # img = np.copy(img)
@@ -137,15 +162,15 @@ def pipeline(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
 
     return combined_binary
 
-result = pipeline(image)
+# result = pipeline(image)
 
 # Plot the result
-f, (ax1, ax2) = plt.subplots(1, 2, figsize=(24, 9))
+f, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 f.tight_layout()
 
 ax1.imshow(image)
-ax1.set_title('Original Image', fontsize=40)
+ax1.set_title('Original Image', fontsize=20)
 
-ax2.imshow(result)
-ax2.set_title('Pipeline Result', fontsize=40)
-plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
+ax2.imshow(warped)
+ax2.set_title('Warped image with dest. points drawn', fontsize=20)
+# plt.subplots_adjust(left=0., right=1, top=0.9, bottom=0.)
