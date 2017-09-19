@@ -17,8 +17,9 @@ The goals / steps of this project are the following:
 [image2]: ./DistortionCorrection_RawImage.png "Undistorted Raw Image"
 [image3]: ./CombineColorandGradient.png "Binary-Combine Color and Gradient"
 [image4]: ./PerspectiveTransform.png "Perspective Transform"
-[image5]: ./examples/color_fit_lines.jpg "Fit Visual"
-[image6]: ./examples/example_output.jpg "Output"
+[image5]: ./histogram.png "Histogram"
+[image6]: ./Perspective_binary.png "Perspective Binary"
+[image7]: ./SlidingWindow.png "SlidingWindow"
 [video1]: ./project_video.mp4 "Video"
 
 ## [Rubric](https://review.udacity.com/#!/rubrics/571/view) Points
@@ -84,9 +85,18 @@ I verified that my perspective transform was working as expected by drawing the 
 
 #### 4. Describe how (and identify where in your code) you identified lane-line pixels and fit their positions with a polynomial?
 
+![alt text][image6]
+
 Then I did some other stuff and fit my lane lines with a 2nd order polynomial kinda like this:
 
+Define conversions in x and y from pixels space to meters
+```
+ym_per_pix = 30/720 # meters per pixel in y dimension
+xm_per_pix = 3.7/700 # meters per pixel in x dimension
+```
 ![alt text][image5]
+
+![alt text][image7]
 
 #### 5. Describe how (and identify where in your code) you calculated the radius of curvature of the lane and the position of the vehicle with respect to center.
 
@@ -96,7 +106,7 @@ I did this in lines # through # in my code in `my_other_file.py`
 
 I implemented this step in lines # through # in my code in `yet_another_file.py` in the function `map_lane()`.  Here is an example of my result on a test image:
 
-![alt text][image6]
+
 
 ---
 
