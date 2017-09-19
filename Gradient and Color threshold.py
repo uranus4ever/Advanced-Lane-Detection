@@ -79,8 +79,6 @@ def Gradient(img, threshold = (0,255)):
     combined[(gradx == 1) | ((mag_binary == 1) & (dir_binary == 1))] = 1
     return combined
 
-
-
 def CombineGradientColor(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     # Note: img is the undistorted image
     # img = np.copy(img)
