@@ -58,25 +58,25 @@ The code for my perspective transform includes a function called `warper()`, whi
 
 ```python
 src = np.float32(
-    [[(img_size[0] / 2) - 60, img_size[1] / 2 + 100],
-    [((img_size[0] / 6) + 90), img_size[1] - 60],
-    [(img_size[0] * 5 / 6) - 50, img_size[1] - 60],
-    [(img_size[0] / 2 + 65), img_size[1] / 2 + 100]])
+    [[(img_size[0] / 2) - 65, img_size[1] / 2 + 100],
+    [((img_size[0] / 6) + 70), img_size[1] - 60],
+    [(img_size[0] * 5 / 6) - 40, img_size[1] - 60],
+    [(img_size[0] / 2 + 70), img_size[1] / 2 + 100]])
 dst = np.float32(
-    [[(img_size[0] / 4) + 90, 0],
-     [(img_size[0] / 4) + 90, img_size[1] - 60],
-     [(img_size[0] * 3/4) - 15, img_size[1] - 60],
-     [(img_size[0] * 3/4) - 15, 0]])
+    [[(img_size[0] / 4) + 75, 0],
+     [(img_size[0] / 4) + 75, img_size[1] - 60],
+     [(img_size[0] * 3/4) - 5, img_size[1] - 60],
+     [(img_size[0] * 3/4) - 5, 0]])
 ```
 
 This resulted in the following source and destination points:
 
 | Source        | Destination   | 
 |:-------------:|:-------------:| 
-| 580, 460      | 410, 0        | 
-| 303, 660      | 410, 660      |
-| 1016, 660     | 945, 660      |
-| 705, 460      | 945, 0        |
+| 575, 460      | 395, 0        | 
+| 283, 660      | 395, 660      |
+| 1026, 660     | 955, 660      |
+| 710, 460      | 955, 0        |
 
 I verified that my perspective transform was working as expected by drawing the `src` and `dst` points onto a test image and its warped counterpart to verify that the lines appear parallel in the warped image.
 
