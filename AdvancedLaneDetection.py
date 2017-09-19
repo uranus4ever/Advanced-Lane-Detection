@@ -4,7 +4,7 @@ The goals / steps of this project are the following:
 1. Compute the camera calibration matrix and distortion coefficients given a set of chessboard images. - Done
 2. Apply a distortion correction to raw images. - Done
 3. Use color transforms, gradients, etc., to create a thresholded binary image. - Done
-4. Apply a perspective transform to rectify binary image ("birds-eye view").
+4. Apply a perspective transform to rectify binary image ("birds-eye view"). - Done
 5. Detect lane pixels and fit to find the lane boundary.
 6. Determine the curvature of the lane and vehicle position with respect to center.
 7. Warp the detected lane boundaries back onto the original image.
@@ -42,16 +42,28 @@ def draw_lines(img, points, color=(255,0,0), thickness=2):
             cv2.line(img, (x1, y1), (x2, y2), color, thickness)
 
 img_size = [image.shape[1], image.shape[0]]
+
 src = np.float32(
-    [[(img_size[0] / 2) - 70, img_size[1] / 2 + 100],
-    [((img_size[0] / 6) - 30), img_size[1] - 60],
-    [(img_size[0] * 5 / 6) - 30, img_size[1] - 60],
-    [(img_size[0] / 2 + 65), img_size[1] / 2 + 100]])
+    [[(img_size[0] / 2) - 65, img_size[1] / 2 + 100],
+    [((img_size[0] / 6) + 70), img_size[1] - 60],
+    [(img_size[0] * 5 / 6) - 40, img_size[1] - 60],
+    [(img_size[0] / 2 + 70), img_size[1] / 2 + 100]])
 dst = np.float32(
-    [[(img_size[0] / 4), 0],
-     [(img_size[0] / 4), img_size[1] - 60],
-     [(img_size[0] * 3/4), img_size[1] - 60],
-     [(img_size[0] * 3/4), 0]])
+    [[(img_size[0] / 4) + 75, 0],
+     [(img_size[0] / 4) + 75, img_size[1] - 60],
+     [(img_size[0] * 3/4) - 5, img_size[1] - 60],
+     [(img_size[0] * 3/4) - 5, 0]])
+
+# src_test5 = np.float32(
+#     [[(img_size[0] / 2) - 70, img_size[1] / 2 + 100],
+#     [((img_size[0] / 6) + 50), img_size[1] - 60],
+#     [(img_size[0] * 5 / 6) - 30, img_size[1] - 60],
+#     [(img_size[0] / 2 + 75), img_size[1] / 2 + 100]])
+# dst_test5 = np.float32(
+#     [[(img_size[0] / 4) + 60, 0],
+#      [(img_size[0] / 4) + 60, img_size[1] - 60],
+#      [(img_size[0] * 3/4) + 5, img_size[1] - 60],
+#      [(img_size[0] * 3/4) + 5, 0]])
 warped = warper(image, src, dst)
 draw_lines(image, src)
 draw_lines(warped, dst)
