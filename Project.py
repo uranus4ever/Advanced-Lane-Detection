@@ -196,6 +196,40 @@ def SlidingWindow(img):
     right_fit = np.polyfit(righty, rightx, 2)
     return left_fit, right_fit
 
+def SkipSlidingWindow(img, left_fit, right_fit):
+    # Assume you now have a new warped binary image
+    # from the next frame of video (also called "binary_warped")
+    # It's now much easier to find line pixels!
+    binary_warped = img
+    nonzero = binary_warped.nonzero()
+    nonzeroy = np.array(nonzero[0])
+    nonzerox = np.array(nonzero[1])
+    margin = 80
+    left_lane_inds = ((nonzerox > (left_fit[0] * (nonzeroy ** 2) + left_fit[1] * nonzeroy +
+                                   left_fit[2] - margin)) & (nonzerox < (left_fit[0] * (nonzeroy ** 2) +
+                                                                         left_fit[1] * nonzeroy + left_fit[
+                                                                             2] + margin)))
+
+    right_lane_inds = ((nonzerox > (right_fit[0] * (nonzeroy ** 2) + right_fit[1] * nonzeroy +
+                                    right_fit[2] - margin)) & (nonzerox < (right_fit[0] * (nonzeroy ** 2) +
+                                                                           right_fit[1] * nonzeroy + right_fit[
+                                                                               2] + margin)))
+
+    # Again, extract left and right line pixel positions
+    leftx = nonzerox[left_lane_inds]
+    lefty = nonzeroy[left_lane_inds]
+    rightx = nonzerox[right_lane_inds]
+    righty = nonzeroy[right_lane_inds]
+    # Fit a second order polynomial to each
+    left_fit = np.polyfit(lefty, leftx, 2)
+    right_fit = np.polyfit(righty, rightx, 2)
+    # Generate x and y values for plotting
+    ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
+    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+    right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+
+    return left_fitx, right_fitx
+
 def curvature(warped_size, left_fit, right_fit):
     ploty = np.linspace(0, warped_size[0] - 1, warped_size[0])
     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
@@ -245,8 +279,22 @@ def process_image(image):
     undist_img = Undistort(image, mtx, dist)
     binary = pipeline(undist_img)
     warped = warper(binary, img_size, src, dst)
-    left_fit, right_fit = SlidingWindow(warped)
+    leftline = Line()
+    rightline = Line()
+    if leftline | rightline:
+        left_fit, right_fit = SlidingWindow(warped)
+        leftline.detected, rightline.detected = True, True
+        
+    else:
+        left_fit, right_fit = SkipSlidingWindow(warped, left_fit, right_fit)
+
     line_curv, offset = curvature(img_shape, left_fit, right_fit)  # +: car in right; -: car in left side
+
+    leftline = Line(left_fit, img_shape)
+
+
+
+
     result = DrawArea(undist_img, img_shape, src, dst, left_fit, right_fit)
 
     font = cv2.FONT_HERSHEY_SIMPLEX  # 使用默认字体
@@ -268,8 +316,7 @@ image = mpimg.imread('./test_images/test2.jpg')
 white_output = './output_videos/challenge_output.mp4'
 ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
 ## To do so add .subclip(start_second,end_second) to the end of the line below
-## Where start_second and end_second are integer values representing the start and end of the subclip
-## You may also uncomment the following line for a subclip of the first 5 seconds
+
 input_path = './test_videos/challenge_video.mp4'
 clip1 = VideoFileClip(input_path).subclip(5,8)
 # clip1 = VideoFileClip(input_path)
