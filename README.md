@@ -13,14 +13,14 @@ The goals / steps of this project are the following:
 
 [//]: # (Image References)
 
-[image1]: ./Image/DistortionCorrection_CameraCalibration.png "Undistorted Chessboard"
-[image2]: ./Image/DistortionCorrection_RawImage.png "Undistorted Raw Image"
-[image3]: ./Image/CombineColorandGradient.png "Binary-Combine Color and Gradient"
-[image4]: ./Image/PerspectiveTransform.png "Perspective Transform"
-[image5]: ./Image/histogram.png "Histogram"
-[image6]: ./Image/Perspective_binary.png "Perspective Binary"
-[image7]: ./Image/SlidingWindow.png "SlidingWindow"
-[image8]: ./Image/workflow.png "WorkFlow"
+[image1]: ./Images/DistortionCorrection_CameraCalibration.png "Undistorted Chessboard"
+[image2]: ./Images/DistortionCorrection_RawImage.png "Undistorted Raw Image"
+[image3]: ./Images/CombineColorandGradient.png "Binary-Combine Color and Gradient"
+[image4]: ./Images/PerspectiveTransform.png "Perspective Transform"
+[image5]: ./Images/histogram.png "Histogram"
+[image6]: ./Images/Perspective_binary.png "Perspective Binary"
+[image7]: ./Images/SlidingWindow.png "SlidingWindow"
+[image8]: ./Images/workflow.png "WorkFlow"
 [video1]: ./project_video.mp4 "Video"
 
 ## [Rubric](https://review.udacity.com/#!/rubrics/571/view) Points
