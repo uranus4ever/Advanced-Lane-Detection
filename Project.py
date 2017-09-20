@@ -6,6 +6,8 @@ import glob
 import pickle
 import matplotlib.image as mpimg
 import pickle
+from moviepy.editor import VideoFileClip
+# from IPython.display import HTML
 
 # Define a class to receive the characteristics of each line detection
 class Line():
@@ -67,9 +69,13 @@ def pipeline(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
 
     return combined_binary
 
-def DrawArea():
+def DrawArea(undist, warped_size, src, dst, left_fit, right_fit):
+    Minv = cv2.getPerspectiveTransform(dst, src)
+    ploty = np.linspace(0, warped_size[0] - 1, warped_size[0])
+    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+    right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
     # Create an image to draw the lines on
-    warp_zero = np.zeros_like(warped).astype(np.uint8)
+    warp_zero = np.zeros(warped_size).astype(np.uint8)
     color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
 
     # Recast the x and y points into usable format for cv2.fillPoly()
@@ -81,9 +87,10 @@ def DrawArea():
     cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
 
     # Warp the blank back to original image space using inverse perspective matrix (Minv)
-    newwarp = cv2.warpPerspective(color_warp, Minv, (image.shape[1], image.shape[0]))
+    newwarp = cv2.warpPerspective(color_warp, Minv, (warped_size[1], warped_size[0]))
     # Combine the result with the original image
     result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
+
     return result
 
 def Undistort(img, mtx, dist):
@@ -195,9 +202,9 @@ def curvature(warped_size, left_fit, right_fit):
     right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
 
     ym_per_pix = 30 / 720  # meters per pixel in y dimension
-    xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
+    xm_per_pix = 3.7 / 600  # meters per pixel in x dimension
     y_eval = np.max(ploty)
-    ploty = np.linspace(0, warped.shape[0] - 1, warped.shape[0])
+    ploty = np.linspace(0, warped_size[0] - 1, warped_size[0])
     # Fit new polynomials to x,y in world space
     left_fit_cr = np.polyfit(ploty * ym_per_pix, left_fitx * xm_per_pix, 2)
     right_fit_cr = np.polyfit(ploty * ym_per_pix, right_fitx * xm_per_pix, 2)
@@ -207,41 +214,79 @@ def curvature(warped_size, left_fit, right_fit):
         2 * right_fit_cr[0])
     curv = np.mean((left_curverad, right_curverad))
     # print(left_curverad, 'm', right_curverad, 'm', curv, 'm')
-    return curv
 
-image = mpimg.imread('./test_images/test3.jpg')
-img_size = [image.shape[1], image.shape[0]]
-img_shape = (image.shape[0], image.shape[1])
-# import Camera Calibration Parameters
-dist_pickle = "./wide_dist_pickle.p"
-with open(dist_pickle, mode="rb") as f:
-    CalData = pickle.load(f)
-    mtx, dist = CalData["mtx"], CalData["dist"]
-src = np.float32(
-    [[(img_size[0] / 2) - 65, img_size[1] / 2 + 100],
-    [((img_size[0] / 6) + 70), img_size[1] - 60],
-    [(img_size[0] * 5 / 6) - 40, img_size[1] - 60],
-    [(img_size[0] / 2 + 70), img_size[1] / 2 + 100]])
-dst = np.float32(
-    [[(img_size[0] / 4) + 75, 0],
-     [(img_size[0] / 4) + 75, img_size[1] - 60],
-     [(img_size[0] * 3/4) - 5, img_size[1] - 60],
-     [(img_size[0] * 3/4) - 5, 0]])
+    xleft_eval = left_fit[0] * y_eval ** 2 + left_fit[1] * y_eval + left_fit[2]
+    xright_eval = right_fit[0] * y_eval ** 2 + right_fit[1] * y_eval + right_fit[2]
+    xmean = np.mean((xleft_eval,xright_eval))
+    offset = (warped_size[1]/2 - xmean) * xm_per_pix # +: car in right; -: car in left side
+    return curv, offset
+
+def process_image(image):
+    # import Camera Calibration Parameters
+    dist_pickle = "./wide_dist_pickle.p"
+    with open(dist_pickle, mode="rb") as f:
+        CalData = pickle.load(f)
+        mtx, dist = CalData["mtx"], CalData["dist"]
+
+    img_size = [image.shape[1], image.shape[0]]
+    img_shape = (image.shape[0], image.shape[1])
+
+    src = np.float32(
+        [[(img_size[0] / 2) - 65, img_size[1] / 2 + 100],
+         [((img_size[0] / 6) + 70), img_size[1] - 60],
+         [(img_size[0] * 5 / 6) - 40, img_size[1] - 60],
+         [(img_size[0] / 2 + 70), img_size[1] / 2 + 100]])
+    dst = np.float32(
+        [[(img_size[0] / 4) + 75, 0],
+         [(img_size[0] / 4) + 75, img_size[1] - 60],
+         [(img_size[0] * 3 / 4) - 5, img_size[1] - 60],
+         [(img_size[0] * 3 / 4) - 5, 0]])
+
+    undist_img = Undistort(image, mtx, dist)
+    binary = pipeline(undist_img)
+    warped = warper(binary, img_size, src, dst)
+    left_fit, right_fit = SlidingWindow(warped)
+    line_curv, offset = curvature(img_shape, left_fit, right_fit)  # +: car in right; -: car in left side
+    result = DrawArea(undist_img, img_shape, src, dst, left_fit, right_fit)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX  # 使用默认字体
+    text = 'Radius of Curvature = %d(m) \n ' \
+           'Vehicle is %.2f(m) left of center'
+    result_text = cv2.putText(result, text % (int(line_curv), -offset),
+                              (60, 100), font, 1.0, (255, 255, 255), thickness=2)
+    return result_text
+
+image = mpimg.imread('./test_images/test2.jpg')
 
 
-undist_img = Undistort(image, mtx, dist)
-binary = pipeline(undist_img)
-warped = warper(binary, img_size, src, dst)
-left_fit, right_fit = SlidingWindow(warped)
-line_curv = curvature(img_shape, left_fit, right_fit)
+
+# result = process_image(image, mtx, dist)
+# plt.figure(figsize=(12,5))
+# plt.imshow(result)
 
 
-plt.figure(figsize=(12,5))
-plt.subplot(131)
-plt.imshow(undist_img)
-plt.subplot(132)
-plt.imshow(binary, cmap='gray')
-draw_lines(src)
-plt.subplot(133)
-plt.imshow(warped, cmap='gray')
-draw_lines(dst)
+white_output = './output_videos/challenge_output.mp4'
+## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
+## To do so add .subclip(start_second,end_second) to the end of the line below
+## Where start_second and end_second are integer values representing the start and end of the subclip
+## You may also uncomment the following line for a subclip of the first 5 seconds
+input_path = './test_videos/challenge_video.mp4'
+clip1 = VideoFileClip(input_path).subclip(5,8)
+# clip1 = VideoFileClip(input_path)
+white_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
+white_clip.write_videofile(white_output, audio=False)
+
+
+
+#
+# plt.figure(figsize=(12,5))
+# plt.subplot(221)
+# plt.imshow(undist_img)
+# plt.subplot(222)
+# plt.imshow(binary, cmap='gray')
+# draw_lines(src)
+# plt.subplot(223)
+# plt.imshow(warped, cmap='gray')
+# draw_lines(dst)
+# plt.subplot(224)
+# plt.imshow(result)
