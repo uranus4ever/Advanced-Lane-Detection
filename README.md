@@ -13,13 +13,14 @@ The goals / steps of this project are the following:
 
 [//]: # (Image References)
 
-[image1]: ./DistortionCorrection_CameraCalibration.png "Undistorted Chessboard"
-[image2]: ./DistortionCorrection_RawImage.png "Undistorted Raw Image"
-[image3]: ./CombineColorandGradient.png "Binary-Combine Color and Gradient"
-[image4]: ./PerspectiveTransform.png "Perspective Transform"
-[image5]: ./histogram.png "Histogram"
-[image6]: ./Perspective_binary.png "Perspective Binary"
-[image7]: ./SlidingWindow.png "SlidingWindow"
+[image1]: ./Image/DistortionCorrection_CameraCalibration.png "Undistorted Chessboard"
+[image2]: ./Image/DistortionCorrection_RawImage.png "Undistorted Raw Image"
+[image3]: ./Image/CombineColorandGradient.png "Binary-Combine Color and Gradient"
+[image4]: ./Image/PerspectiveTransform.png "Perspective Transform"
+[image5]: ./Image/histogram.png "Histogram"
+[image6]: ./Image/Perspective_binary.png "Perspective Binary"
+[image7]: ./Image/SlidingWindow.png "SlidingWindow"
+[image8]: ./Image/workflow.png "WorkFlow"
 [video1]: ./project_video.mp4 "Video"
 
 ## [Rubric](https://review.udacity.com/#!/rubrics/571/view) Points
@@ -113,6 +114,8 @@ I implemented this step in lines # through # in my code in `yet_another_file.py`
 ### Pipeline (video)
 
 #### 1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (wobbly lines are ok but no catastrophic failures that would cause the car to drive off the road!).
+
+![alt text][image8]
 
 Here's a [link to my video result](./project_video.mp4)
 
