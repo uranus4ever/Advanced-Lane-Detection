@@ -11,7 +11,7 @@ from moviepy.editor import VideoFileClip
 
 # Define a class to receive the characteristics of each line detection
 class Line():
-    def __init__(self):
+    def __init__(self, n):
         # was the line detected in the last iteration?
         self.detected = False
         # x values of the last n fits of the line
@@ -32,6 +32,34 @@ class Line():
         self.allx = None
         #y values for detected line pixels
         self.ally = None
+
+        # n is window size of the moving average
+        self.n = n
+        # Polynimial coefficients: x = A*y**2 + B*y + C
+        self.A = []
+        self.B = []
+        self.C = []
+        self.A_avg = 0.
+        self.B_avg = 0.
+        self.C_avg = 0.
+    def get_fit(self):
+        return (self.A_avg, self.B_avg, self.C_avg)
+    def add_fit(self, fit):
+        q_full = len(self.A)
+        self.A.append(fit[0])
+        self.B.append(fit[1])
+        self.C.append(fit[2])
+
+        if q_full >= self.n:
+            self.A.pop(0)
+            self.B.pop(0)
+            self.C.pop(0)
+
+        self.A_avg = np.mean(self.A)
+        self.B_avg = np.mean(self.B)
+        self.C_avg = np.mean(self.C)
+
+        return (self.A_avg, self.B_avg, self.C_avg)
 
 # SanityCheck:
 #     # check that they have similar curvature
@@ -194,7 +222,16 @@ def SlidingWindow(img):
     # Fit a second order polynomial to each
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
-    return left_fit, right_fit
+
+    ret = {}
+    ret['left_fit'] = left_fit
+    ret['right_fit'] = right_fit
+    ret['nonzerox'] = nonzerox
+    ret['nonzeroy'] = nonzeroy
+    ret['out_img'] = out_img
+    ret['left_lane_inds'] = left_lane_inds
+    ret['right_lane_inds'] = right_lane_inds
+    return ret
 
 def SkipSlidingWindow(img, left_fit, right_fit):
     # Assume you now have a new warped binary image
@@ -204,7 +241,7 @@ def SkipSlidingWindow(img, left_fit, right_fit):
     nonzero = binary_warped.nonzero()
     nonzeroy = np.array(nonzero[0])
     nonzerox = np.array(nonzero[1])
-    margin = 80
+    margin = 100
     left_lane_inds = ((nonzerox > (left_fit[0] * (nonzeroy ** 2) + left_fit[1] * nonzeroy +
                                    left_fit[2] - margin)) & (nonzerox < (left_fit[0] * (nonzeroy ** 2) +
                                                                          left_fit[1] * nonzeroy + left_fit[
@@ -220,6 +257,12 @@ def SkipSlidingWindow(img, left_fit, right_fit):
     lefty = nonzeroy[left_lane_inds]
     rightx = nonzerox[right_lane_inds]
     righty = nonzeroy[right_lane_inds]
+
+    # If little relevant pixels found, return None, indicating ERROR
+    min_inds = 10
+    if lefty.shape[0] < min_inds or righty.shape[0] < min_inds:
+        return None
+
     # Fit a second order polynomial to each
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
@@ -228,7 +271,15 @@ def SkipSlidingWindow(img, left_fit, right_fit):
     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
     right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
 
-    return left_fitx, right_fitx
+    ret = {}
+    ret['left_fit'] = left_fit
+    ret['right_fit'] = right_fit
+    ret['nonzerox'] = nonzerox
+    ret['nonzeroy'] = nonzeroy
+    ret['left_lane_inds'] = left_lane_inds
+    ret['right_lane_inds'] = right_lane_inds
+
+    return ret
 
 def curvature(warped_size, left_fit, right_fit):
     ploty = np.linspace(0, warped_size[0] - 1, warped_size[0])
@@ -281,9 +332,22 @@ def process_image(image):
     warped = warper(binary, img_size, src, dst)
     leftline = Line()
     rightline = Line()
-    if leftline | rightline:
+
+    left_fit, right_fit = SlidingWindow(warped)
+
+    while(leftline.detected & rightline.detected):
+        leftline.recent_xfitted.append(left_fit)
+        rightline.recent_xfitted.append(right_fit)
+        leftline.bestx
+        leftline.best_fit = np.mean()
+
+    if leftline.detected | rightline.detected:
         left_fit, right_fit = SlidingWindow(warped)
         leftline.detected, rightline.detected = True, True
+        leftline.recent_xfitted.append(left_fit)
+        rightline.recent_xfitted.append(right_fit)
+        leftline.bestx
+        leftline.best_fit = np.mean()
         
     else:
         left_fit, right_fit = SkipSlidingWindow(warped, left_fit, right_fit)
@@ -298,26 +362,25 @@ def process_image(image):
     result = DrawArea(undist_img, img_shape, src, dst, left_fit, right_fit)
 
     font = cv2.FONT_HERSHEY_SIMPLEX  # 使用默认字体
-    text = 'Radius of Curvature = %d(m) \n ' \
-           'Vehicle is %.2f(m) left of center'
-    result_text = cv2.putText(result, text % (int(line_curv), -offset),
+    text1 = 'Radius of Curvature = %d(m)'
+    text2 = 'Vehicle is %.2f(m) left of center'
+    result_text = cv2.putText(result, text1 % (int(line_curv)),
                               (60, 100), font, 1.0, (255, 255, 255), thickness=2)
+    result_text = cv2.putText(result, text2 % (-offset),
+                              (60, 130), font, 1.0, (255, 255, 255), thickness=2)
     return result_text
 
-image = mpimg.imread('./test_images/test2.jpg')
-
-
-
+# image = mpimg.imread('./test_images/test2.jpg')
 # result = process_image(image, mtx, dist)
 # plt.figure(figsize=(12,5))
 # plt.imshow(result)
 
 
-white_output = './output_videos/challenge_output.mp4'
+white_output = './output_videos/project_output.mp4'
 ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
 ## To do so add .subclip(start_second,end_second) to the end of the line below
 
-input_path = './test_videos/challenge_video.mp4'
+input_path = './test_videos/project_video.mp4'
 clip1 = VideoFileClip(input_path).subclip(5,8)
 # clip1 = VideoFileClip(input_path)
 white_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
