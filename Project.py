@@ -43,7 +43,7 @@ class Line():
         self.B_avg = 0.
         self.C_avg = 0.
     def get_fit(self):
-        return (self.A_avg, self.B_avg, self.C_avg)
+        return self.best_fit
     def add_fit(self, fit):
         q_full = len(self.A)
         self.A.append(fit[0])
@@ -58,42 +58,57 @@ class Line():
         self.A_avg = np.mean(self.A)
         self.B_avg = np.mean(self.B)
         self.C_avg = np.mean(self.C)
-
-        return (self.A_avg, self.B_avg, self.C_avg)
+        self.best_fit = [self.A_avg, self.B_avg, self.C_avg]
+        return self.best_fit
 
 # SanityCheck:
 #     # check that they have similar curvature
 #     # check that they are separated by approx. the right distance horizontally
 #     # check that they are roughly parallel
 
-def pipeline(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
+def pipeline(img, s_thresh=(100, 255), sx_thresh=(20, 100)):
     # Note: img is the undistorted image
-    # img = np.copy(img)
-    # Convert to HLS color space and separate the V channel
-    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
-    s_channel = hls[:, :, 2]
     # Grayscale image
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
     # Sobel x
     sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0)  # Take the derivative in x
+    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1)
     abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
     scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
 
     # Threshold x gradient
-    sxbinary = np.zeros_like(scaled_sobel)
-    sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
+    abs_bin = np.zeros_like(scaled_sobel)
+    abs_bin[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
+
+    # Calculate the gradient magnitude
+    mag_thresh = (50, 255)
+    gradmag = np.sqrt(sobelx**2 + sobely**2)
+    # Rescale to 8 bit
+    scale_factor = np.max(gradmag)/255
+    gradmag = (gradmag/scale_factor).astype(np.uint8)
+    mag_bin = np.zeros_like(gradmag)
+    mag_bin[(gradmag >= mag_thresh[0]) & (gradmag <= mag_thresh[1])] = 1
+
+    # Calculate the x and y gradients
+    dir_thresh = (0, np.pi/2)
+    absgraddir = np.arctan2(np.absolute(sobely), np.absolute(sobelx))
+    dir_bin = np.zeros_like(absgraddir)
+    dir_bin[(absgraddir >= dir_thresh[0]) & (absgraddir <= dir_thresh[1])] = 1
 
     # Threshold color channel
-    s_binary = np.zeros_like(s_channel)
-    s_binary[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
+    # Convert to HLS color space and separate the V channel
+    hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
+    s_channel = hls[:, :, 2]
+    schannel_bin = np.zeros_like(s_channel)
+    schannel_bin[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
     # Stack each channel to view their individual contributions in green and blue respectively
     # This returns a stack of the two binary images, whose components you can see as different colors
-    color_binary = np.dstack((np.zeros_like(sxbinary), sxbinary, s_binary)) * 255
+    color_binary = np.dstack((np.zeros_like(abs_bin), abs_bin, schannel_bin)) * 255
 
     # Combine the two binary thresholds
-    combined_binary = np.zeros_like(sxbinary)
-    combined_binary[(s_binary == 1) | (sxbinary == 1)] = 1
+    combined_binary = np.zeros_like(abs_bin)
+    combined_binary[(schannel_bin == 1) | (((mag_bin == 1) & (dir_bin == 1)) | abs_bin == 1)] = 1
 
     return combined_binary
 
@@ -129,13 +144,24 @@ def Undistort(img, mtx, dist):
 
     return cv2.cvtColor(dst_img, cv2.COLOR_BGR2RGB)
 
-def warper(img, img_size, src, dst):
+def warper(img, img_size):
+    src = np.float32(
+        [[(img_size[0] / 2) - 65, img_size[1] / 2 + 100],
+         [((img_size[0] / 6) + 70), img_size[1] - 60],
+         [(img_size[0] * 5 / 6) - 40, img_size[1] - 60],
+         [(img_size[0] / 2 + 70), img_size[1] / 2 + 100]])
+    dst = np.float32(
+        [[(img_size[0] / 4) + 75, 0],
+         [(img_size[0] / 4) + 75, img_size[1] - 60],
+         [(img_size[0] * 3 / 4) - 5, img_size[1] - 60],
+         [(img_size[0] * 3 / 4) - 5, 0]])
+
     # Compute and apply perpective transform
     img_size = tuple(img_size)
     M = cv2.getPerspectiveTransform(src, dst)
     warped = cv2.warpPerspective(img, M, img_size, flags=cv2.INTER_NEAREST)  # keep same size as input image
 
-    return warped
+    return warped, src, dst
 
 def draw_lines(points):
     # Transform float32 array into list
@@ -153,7 +179,7 @@ def SlidingWindow(img):
     binary_warped = img
     # Assuming you have created a warped binary image called "binary_warped"
     # Take a histogram of the bottom half of the image
-    histogram = np.sum(binary_warped[int(binary_warped.shape[0] / 2):, :], axis=0)
+    histogram = np.sum(binary_warped[int(binary_warped.shape[0] // 2):, :], axis=0)
     # Create an output image to draw on and  visualize the result
     out_img = np.dstack((binary_warped, binary_warped, binary_warped)) * 255
     # Find the peak of the left and right halves of the histogram
@@ -174,9 +200,9 @@ def SlidingWindow(img):
     leftx_current = leftx_base
     rightx_current = rightx_base
     # Set the width of the windows +/- margin
-    margin = 58
+    margin = 100
     # Set minimum number of pixels found to recenter window
-    minpix = 65
+    minpix = 50
     # Create empty lists to receive left and right lane pixel indices
     left_lane_inds = []
     right_lane_inds = []
@@ -297,7 +323,7 @@ def curvature(warped_size, left_fit, right_fit):
         2 * left_fit_cr[0])
     right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
         2 * right_fit_cr[0])
-    curv = np.mean((left_curverad, right_curverad))
+    curv = [np.mean((left_curverad, right_curverad)), left_curverad, right_curverad]
     # print(left_curverad, 'm', right_curverad, 'm', curv, 'm')
 
     xleft_eval = left_fit[0] * y_eval ** 2 + left_fit[1] * y_eval + left_fit[2]
@@ -307,96 +333,86 @@ def curvature(warped_size, left_fit, right_fit):
     return curv, offset
 
 def process_image(image):
-    # import Camera Calibration Parameters
-    dist_pickle = "./wide_dist_pickle.p"
-    with open(dist_pickle, mode="rb") as f:
-        CalData = pickle.load(f)
-        mtx, dist = CalData["mtx"], CalData["dist"]
+
+    global mtx, dist
+    global left_line, right_line
 
     img_size = [image.shape[1], image.shape[0]]
     img_shape = (image.shape[0], image.shape[1])
 
-    src = np.float32(
-        [[(img_size[0] / 2) - 65, img_size[1] / 2 + 100],
-         [((img_size[0] / 6) + 70), img_size[1] - 60],
-         [(img_size[0] * 5 / 6) - 40, img_size[1] - 60],
-         [(img_size[0] / 2 + 70), img_size[1] / 2 + 100]])
-    dst = np.float32(
-        [[(img_size[0] / 4) + 75, 0],
-         [(img_size[0] / 4) + 75, img_size[1] - 60],
-         [(img_size[0] * 3 / 4) - 5, img_size[1] - 60],
-         [(img_size[0] * 3 / 4) - 5, 0]])
-
     undist_img = Undistort(image, mtx, dist)
     binary = pipeline(undist_img)
-    warped = warper(binary, img_size, src, dst)
-    leftline = Line()
-    rightline = Line()
+    warped, src, dst = warper(binary, img_size)
 
-    left_fit, right_fit = SlidingWindow(warped)
+    if not (left_line.detected or right_line.detected):
+        ret = SlidingWindow(warped)
+        left_fit = ret['left_fit']
+        right_fit = ret['right_fit']
+        left_fit = left_line.add_fit(left_fit)
+        right_fit = right_line.add_fit(right_fit)
+        # +: car in right; -: car in left side
+        line_curv, offset = curvature(img_shape, left_fit, right_fit)
 
-    while(leftline.detected & rightline.detected):
-        leftline.recent_xfitted.append(left_fit)
-        rightline.recent_xfitted.append(right_fit)
-        leftline.bestx
-        leftline.best_fit = np.mean()
-
-    if leftline.detected | rightline.detected:
-        left_fit, right_fit = SlidingWindow(warped)
-        leftline.detected, rightline.detected = True, True
-        leftline.recent_xfitted.append(left_fit)
-        rightline.recent_xfitted.append(right_fit)
-        leftline.bestx
-        leftline.best_fit = np.mean()
-        
+        left_line.detected = True
+        right_line.detected = True
     else:
-        left_fit, right_fit = SkipSlidingWindow(warped, left_fit, right_fit)
+        left_fit = left_line.get_fit()
+        right_fit = right_line.get_fit()
+        ret = SkipSlidingWindow(warped, left_fit, right_fit)
+        left_fit = ret['left_fit']
+        right_fit = ret['right_fit']
 
-    line_curv, offset = curvature(img_shape, left_fit, right_fit)  # +: car in right; -: car in left side
-
-    leftline = Line(left_fit, img_shape)
-
-
-
+        # Update only when line detected in current frame
+        if ret is not None:
+            left_fit = ret['left_fit']
+            right_fit = ret['right_fit']
+            left_fit = left_line.add_fit(left_fit)
+            right_fit = right_line.add_fit(right_fit)
+            # +: car in right; -: car in left side
+            line_curv, offset = curvature(img_shape, left_fit, right_fit)
+        else:
+            left_line.detected = False
+            right_line.detected = False
 
     result = DrawArea(undist_img, img_shape, src, dst, left_fit, right_fit)
 
     font = cv2.FONT_HERSHEY_SIMPLEX  # 使用默认字体
     text1 = 'Radius of Curvature = %d(m)'
     text2 = 'Vehicle is %.2f(m) left of center'
-    result_text = cv2.putText(result, text1 % (int(line_curv)),
+    result_text = cv2.putText(result, text1 % (int(line_curv[0])),
                               (60, 100), font, 1.0, (255, 255, 255), thickness=2)
     result_text = cv2.putText(result, text2 % (-offset),
                               (60, 130), font, 1.0, (255, 255, 255), thickness=2)
     return result_text
 
-# image = mpimg.imread('./test_images/test2.jpg')
-# result = process_image(image, mtx, dist)
+# import Camera Calibration Parameters
+dist_pickle = "./wide_dist_pickle.p"
+with open(dist_pickle, mode="rb") as f:
+    CalData = pickle.load(f)
+mtx, dist = CalData["mtx"], CalData["dist"]
+frame = 6
+left_line = Line(n = frame)
+right_line = Line(n = frame)
+
+
+
+# image = mpimg.imread('./test_images/test5.jpg')
+# result = process_image(image)
 # plt.figure(figsize=(12,5))
 # plt.imshow(result)
 
 
-white_output = './output_videos/project_output.mp4'
+
+video_output = './output_videos/project_output.mp4'
+gif_output = './output_videos/challenge_output.gif'
 ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
 ## To do so add .subclip(start_second,end_second) to the end of the line below
 
-input_path = './test_videos/project_video.mp4'
-clip1 = VideoFileClip(input_path).subclip(5,8)
+input_path = './test_videos/challenge_video.mp4'
+clip1 = VideoFileClip(input_path).subclip(0,10)
 # clip1 = VideoFileClip(input_path)
-white_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
-white_clip.write_videofile(white_output, audio=False)
+final_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
 
+final_clip.write_gif(gif_output, fps=25)
+# final_clip.write_videofile(video_output, audio=False)
 
-
-#
-# plt.figure(figsize=(12,5))
-# plt.subplot(221)
-# plt.imshow(undist_img)
-# plt.subplot(222)
-# plt.imshow(binary, cmap='gray')
-# draw_lines(src)
-# plt.subplot(223)
-# plt.imshow(warped, cmap='gray')
-# draw_lines(dst)
-# plt.subplot(224)
-# plt.imshow(result)
