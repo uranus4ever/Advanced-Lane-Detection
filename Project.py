@@ -39,6 +39,7 @@ class Line():
         self.A = []
         self.B = []
         self.C = []
+        self.previousfit = [np.array([False])]
         self.A_avg = 0.
         self.B_avg = 0.
         self.C_avg = 0.
@@ -49,11 +50,14 @@ class Line():
         self.A.append(fit[0])
         self.B.append(fit[1])
         self.C.append(fit[2])
+        self.previousfit.append(np.array([fit[0], fit[1], fit[2]]))
+        self.current_fit = np.array([fit[0], fit[1], fit[2]])
 
         if q_full >= self.n:
             self.A.pop(0)
             self.B.pop(0)
             self.C.pop(0)
+            self.previousfit.pop(0)
 
         self.A_avg = np.mean(self.A)
         self.B_avg = np.mean(self.B)
@@ -61,19 +65,17 @@ class Line():
         self.best_fit = [self.A_avg, self.B_avg, self.C_avg]
         return self.best_fit
 
-# SanityCheck:
-#     # check that they have similar curvature
-#     # check that they are separated by approx. the right distance horizontally
-#     # check that they are roughly parallel
-
 def pipeline(img, s_thresh=(100, 255), sx_thresh=(20, 100)):
     # Note: img is the undistorted image
     # Grayscale image
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
+    # Gaussian Blur
+    blur = cv2.GaussianBlur(gray, (5, 5), 0) #kernelsize = 5
+
     # Sobel x
-    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0)  # Take the derivative in x
-    sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1)
+    sobelx = cv2.Sobel(blur, cv2.CV_64F, 1, 0)  # Take the derivative in x
+    sobely = cv2.Sobel(blur, cv2.CV_64F, 0, 1)
     abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
     scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
 
@@ -112,7 +114,7 @@ def pipeline(img, s_thresh=(100, 255), sx_thresh=(20, 100)):
 
     return combined_binary
 
-def DrawArea(undist, warped_size, src, dst, left_fit, right_fit):
+def DrawArea(undist, warped_size, dst, src, left_fit, right_fit):
     Minv = cv2.getPerspectiveTransform(dst, src)
     ploty = np.linspace(0, warped_size[0] - 1, warped_size[0])
     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
@@ -332,6 +334,34 @@ def curvature(warped_size, left_fit, right_fit):
     offset = (warped_size[1]/2 - xmean) * xm_per_pix # +: car in right; -: car in left side
     return curv, offset
 
+def draw_curv(image):
+
+    img_size = [image.shape[1], image.shape[0]]
+    img_shape = (image.shape[0], image.shape[1])
+
+    undist_img = Undistort(image, mtx, dist)
+    binary = pipeline(undist_img)
+    warped, src, dst = warper(binary, img_size)
+    ret = SlidingWindow(warped)
+    left_fit, right_fit = ret['left_fit'], ret['right_fit']
+    ploty = np.linspace(0, img_shape[0] - 1, img_shape[0])
+    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+    right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+    # warp_zero = np.zeros(warped.shape).astype(np.uint8)
+    # color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
+    # pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
+    # pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
+    # pts = np.hstack((pts_left, pts_right))
+    # cv2.fillPoly(color_warp, np.int_([pts]), (0,255,0))
+    warped_color, src, dst = warper(undist_img, img_size)
+    plt.plot(left_fitx, ploty, color='green')
+    plt.plot(right_fitx, ploty, color='green')
+
+    return  warped_color
+
+
+
+
 def process_image(image):
 
     global mtx, dist
@@ -350,7 +380,7 @@ def process_image(image):
         right_fit = ret['right_fit']
         left_fit = left_line.add_fit(left_fit)
         right_fit = right_line.add_fit(right_fit)
-        # +: car in right; -: car in left side
+
         line_curv, offset = curvature(img_shape, left_fit, right_fit)
 
         left_line.detected = True
@@ -358,6 +388,32 @@ def process_image(image):
     else:
         left_fit = left_line.get_fit()
         right_fit = right_line.get_fit()
+
+        line_curv, offset = curvature(img_size, left_fit, right_fit)
+        # left_curvature - right_curvature diff too much or left/right curvature is too small
+        if (abs(line_curv[1] - line_curv[2]) > 1000) or (line_curv[1] < 600) or (line_curv[2] < 600):
+            ret = SlidingWindow(warped)
+            left_fit = ret['left_fit']
+            right_fit = ret['right_fit']
+            left_line.previousfit = [np.array([])]
+            right_line.previousfit = [np.array([])]
+            left_fit = left_line.add_fit(left_fit)
+            right_fit = right_line.add_fit(right_fit)
+            line_curv, offset = curvature(img_shape, left_fit, right_fit)
+        else:
+            retSkip = SkipSlidingWindow(warped, left_fit, right_fit)
+            # Update only when line detected in current frame
+            if retSkip is not None:
+                left_fit = retSkip['left_fit']
+                right_fit = retSkip['right_fit']
+                left_fit = left_line.add_fit(left_fit)
+                right_fit = right_line.add_fit(right_fit)
+                # +: car in right; -: car in left side
+                line_curv, offset = curvature(img_shape, left_fit, right_fit)
+            else:
+                left_line.detected = False
+                right_line.detected = False
+
         ret = SkipSlidingWindow(warped, left_fit, right_fit)
         left_fit = ret['left_fit']
         right_fit = ret['right_fit']
@@ -374,45 +430,115 @@ def process_image(image):
             left_line.detected = False
             right_line.detected = False
 
-    result = DrawArea(undist_img, img_shape, src, dst, left_fit, right_fit)
+
+    result = DrawArea(undist_img, img_shape, dst, src, left_fit, right_fit)
 
     font = cv2.FONT_HERSHEY_SIMPLEX  # 使用默认字体
-    text1 = 'Radius of Curvature = %d(m)'
+    text1 = 'Radius of Curvature = %d(m), l=%d(m), r=%d(m)'
     text2 = 'Vehicle is %.2f(m) left of center'
-    result_text = cv2.putText(result, text1 % (int(line_curv[0])),
+
+    cv2.putText(result, text1 % (int(line_curv[0]), int(line_curv[1]), int(line_curv[2])),
                               (60, 100), font, 1.0, (255, 255, 255), thickness=2)
-    result_text = cv2.putText(result, text2 % (-offset),
+    cv2.putText(result, text2 % (-offset),
                               (60, 130), font, 1.0, (255, 255, 255), thickness=2)
-    return result_text
+    return result
 
 # import Camera Calibration Parameters
 dist_pickle = "./wide_dist_pickle.p"
 with open(dist_pickle, mode="rb") as f:
     CalData = pickle.load(f)
 mtx, dist = CalData["mtx"], CalData["dist"]
-frame = 6
+frame = 6 # latest frames number of good detection
 left_line = Line(n = frame)
 right_line = Line(n = frame)
 
+# Test on images
+i = 1
+plt.figure(figsize=(16,9))
+for image in glob.glob('./test_images/test_ch*.jpg'):
+    image = mpimg.imread(image)
+    plt.subplot(4,2,i)
+    line = draw_curv(image)
+    plt.imshow(line)
+    plt.axis('off')
+
+    plt.subplot(4,2,i+1)
+    result = process_image(image)
+    plt.imshow(result)
+    plt.axis('off')
+    i += 2
+
+# TODO: 3rd polynominal. equidistant
+'''
+#Calculate approximated equidistant to a parabola
+EQUID_POINTS = 25 # Number of points to use for the equidistant approximation
+def equidistant(pol, d, max_l = 1, plot = False):
+    y_pol = np.linspace(0, max_l, num=EQUID_POINTS)
+    x_pol = pol_calc(pol, y_pol)
+    y_pol *= IMAGE_H # Convert y coordinates to [0..223] scale
+    x_m = []
+    y_m = []
+    k_m = []
+    for i in range(len(x_pol)-1):
+        x_m.append((x_pol[i+1]-x_pol[i])/2.0+x_pol[i]) # Calculate polints position between given points
+        y_m.append((y_pol[i+1]-y_pol[i])/2.0+y_pol[i])
+        if x_pol[i+1] == x_pol[i]:
+            k_m.append(1e8) # A vary big number
+        else:
+            k_m.append(-(y_pol[i+1]-y_pol[i])/(x_pol[i+1]-x_pol[i])) # Slope of perpendicular lines
+    x_m = np.array(x_m)
+    y_m = np.array(y_m)
+    k_m = np.array(k_m)
+    #Calculate equidistant points
+    y_eq = d*np.sqrt(1.0/(1+k_m**2))
+    x_eq = np.zeros_like(y_eq)
+    if d >= 0:
+        for i in range(len(x_m)):
+            if k_m[i] < 0:
+                y_eq[i] = y_m[i]-abs(y_eq[i])
+            else:
+                y_eq[i] = y_m[i]+abs(y_eq[i])
+            x_eq[i] = (x_m[i]-k_m[i]*y_m[i])+k_m[i]*y_eq[i]
+    else:
+        for i in range(len(x_m)):
+            if k_m[i] < 0:
+                y_eq[i] = y_m[i]+abs(y_eq[i])
+            else:
+                y_eq[i] = y_m[i]-abs(y_eq[i])
+            x_eq[i] = (x_m[i]-k_m[i]*y_m[i])+k_m[i]*y_eq[i]
+    y_eq /= IMAGE_H # Convert all y coordinates back to [0..1] scale
+    y_pol /= IMAGE_H
+    y_m /= IMAGE_H
+    pol_eq = np.polyfit(y_eq, x_eq, len(pol)-1) # Fit equidistant with a polinomial
+    if plot: #Visualize results
+        plt.plot(x_pol, y_pol, color='red', linewidth=1, label = 'Original line') #Original line
+        plt.plot(x_eq, y_eq, color='green', linewidth=1, label = 'Equidistant') #Equidistant
+        plt.plot(pol_calc(pol_eq, y_pol), y_pol, color='blue',
+                 linewidth=1, label = 'Approximation') #Approximation
+        plt.legend()
+        for i in range(len(x_m)):
+            plt.plot([x_m[i],x_eq[i]], [y_m[i],y_eq[i]], color='black', linewidth=1) #Draw connection lines
+        plt.savefig('readme_img/equid.jpg')
+    return pol_eq
+
+pol = np.array([106.65796008,  -49.57665396,  718.87055435])
+print(equidistant(pol, -90, plot=True))
+'''
 
 
-# image = mpimg.imread('./test_images/test5.jpg')
-# result = process_image(image)
-# plt.figure(figsize=(12,5))
-# plt.imshow(result)
-
-
-
-video_output = './output_videos/project_output.mp4'
-gif_output = './output_videos/challenge_output.gif'
-## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
-## To do so add .subclip(start_second,end_second) to the end of the line below
-
-input_path = './test_videos/challenge_video.mp4'
-clip1 = VideoFileClip(input_path).subclip(0,10)
-# clip1 = VideoFileClip(input_path)
-final_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
-
-final_clip.write_gif(gif_output, fps=25)
+# video_output = './output_videos/challenge_output.mp4'
+# gif_output = './output_videos/challenge_output.gif'
+#
+# ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
+# ## To do so add .subclip(start_second,end_second) to the end of the line below
+#
+# input_path = './test_videos/challenge_video.mp4'
+#
+# clip1 = VideoFileClip(input_path).subclip(10,16)
+# # clip1 = VideoFileClip(input_path)
+# final_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
+#
+# # final_clip.write_gif(gif_output, fps=25)
 # final_clip.write_videofile(video_output, audio=False)
+
 

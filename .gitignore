@@ -101,3 +101,5 @@ ENV/
 .mypy_cache/
 *.iml
 *.xml
+line_fit.py
+line_fit_video.py
