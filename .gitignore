@@ -103,3 +103,4 @@ ENV/
 *.xml
 line_fit.py
 line_fit_video.py
+output_videos/project_output.gif
