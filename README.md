@@ -2,8 +2,8 @@
 
 The goals / steps of this project are the following:
 
-* Compute the camera calibration matrix and distortion coefficients given a set of chessboard images.
-* Apply a distortion correction to raw images.
+* Compute the **camera calibration** matrix and distortion coefficients given a set of chessboard images.
+* Apply a **distortion correction** to raw images.
 * Use color transforms, gradients, etc., to create a thresholded binary image.
 * Apply a perspective transform to rectify binary image ("birds-eye view").
 * Detect lane pixels and fit to find the lane boundary.
@@ -22,10 +22,12 @@ The goals / steps of this project are the following:
 [image7]: ./Images/SlidingWindow.png "SlidingWindow"
 [image8]: ./Images/workflow.png "WorkFlow"
 [video1]: ./project_video.mp4 "Video"
+[gif1]: ./Images/project.gif "Project_Video_gif"
 
-## [Rubric](https://review.udacity.com/#!/rubrics/571/view) Points
+## Overview
 
-### Here I will consider the rubric points individually and describe how I addressed each point in my implementation.  
+Detect the driving lane on complex condition in dynamic videos and calculate lane curvature. The output looks like the following gif:
+![alt text][gif1]
 
 ---
 
