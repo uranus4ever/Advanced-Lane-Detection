@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
+
 def Color(img, threshold = (90,255)):
     gray = cv2.cvtColor(img, cv2.COLOR_RGBA2GRAY)
     hls = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)
@@ -10,6 +11,7 @@ def Color(img, threshold = (90,255)):
     binary = np.zeros_like(S)
     binary[(S > threshold[0]) & (S <= threshold[1])] = 1
     return binary
+
 
 def abs_sobel_thresh(img, orient='x', sobel_kernel=3, thresh=(0,255)):
     # Convert to grayscale
@@ -28,6 +30,7 @@ def abs_sobel_thresh(img, orient='x', sobel_kernel=3, thresh=(0,255)):
     binary_output[(scaled_sobel >= thresh[0]) & (scaled_sobel <= thresh[1])] = 1
     # Return the result
     return binary_output
+
 
 # Define a function to return the magnitude of the gradient
 # for a given sobel kernel size and threshold values
@@ -49,6 +52,7 @@ def mag_thresh(img, sobel_kernel=3, mag_thresh=(0, 255)):
     # Return the binary image
     return binary_output
 
+
 # Define a function to threshold an image for a given range and Sobel kernel
 def dir_threshold(img, sobel_kernel=3, thresh=(0, np.pi/2)):
     # Grayscale
@@ -65,6 +69,7 @@ def dir_threshold(img, sobel_kernel=3, thresh=(0, np.pi/2)):
     # Return the binary image
     return binary_output
 
+
 def Gradient(img, threshold = (0,255)):
     # Choose a Sobel kernel size
     ksize = 5  # Choose a larger odd number to smooth gradient measurements
@@ -78,6 +83,7 @@ def Gradient(img, threshold = (0,255)):
     # combined[((gradx == 1) & (grady == 1)) | ((mag_binary == 1) & (dir_binary == 1))] = 1
     combined[(gradx == 1) | ((mag_binary == 1) & (dir_binary == 1))] = 1
     return combined
+
 
 def CombineGradientColor(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     # Note: img is the undistorted image
@@ -111,32 +117,29 @@ def CombineGradientColor(img, s_thresh=(170, 255), sx_thresh=(20, 100)):
     return combined_binary
 
 
-image = mpimg.imread('./test_images/test5.jpg')
-colorImg = Color(image, threshold=(170,255))
-gradientImg = Gradient(image, threshold=(60,100))
-combine = CombineGradientColor(image, s_thresh=(170,255), sx_thresh=(20,100))
+def visualize(img):
+    """Plot the images for README"""
+    image = mpimg.imread('./test_images/test5.jpg')
+    # CombineColorGradient
+    f, axes = plt.subplots(2, 2, figsize=(10, 6))
+    (ax1, ax2, ax3, ax4) = axes.ravel()
+    ax1.imshow(image)
+    ax1.set_title('Original Image', fontsize=12)
+    ax2.imshow(Color(image, threshold=(170,255)), cmap='gray')
+    ax2.set_title('S threshold', fontsize=12)
+    ax3.imshow(Gradient(image, threshold=(60,100)), cmap='gray')
+    ax3.set_title('Sobel x, gradient threshold', fontsize=12)
+    ax4.imshow(CombineGradientColor(image, s_thresh=(170,255), sx_thresh=(20,100)),
+               cmap='gray')
+    ax4.set_title('Combined S Channel & gradient threshold', fontsize=12)
+    for ax in axes.ravel():
+        ax.axis('off')
+
+
 
 # Plot the result
 
 # plt.figure()
 # plt.imshow(gradientImg, cmap='gray')
 # plt.show()
-
-f, axes = plt.subplots(2, 2, figsize=(24,16))
-(ax1, ax2, ax3, ax4) = axes.ravel()
-
-ax1.imshow(image)
-ax1.set_title('Original Image', fontsize=20)
-
-ax2.imshow(colorImg, cmap='gray')
-ax2.set_title('S threshold', fontsize=20)
-
-ax3.imshow(gradientImg, cmap='gray')
-ax3.set_title('Sobel x, gradient threshold', fontsize=20)
-
-ax4.imshow(combine, cmap='gray')
-ax4.set_title('Combined S Channel & gradient threshold', fontsize=20)
-
-for ax in axes.ravel():
-    ax.axis('off')
-f.tight_layout()
+image = mpimg.imread('./test_images/test5.jpg')
