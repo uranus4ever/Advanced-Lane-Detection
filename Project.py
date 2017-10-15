@@ -7,7 +7,7 @@ import pickle
 import matplotlib.image as mpimg
 from moviepy.editor import VideoFileClip
 # from IPython.display import HTML
-from helper import warp, draw_lines, img2binary
+from helper import warp, draw_lines, img2binary, undistort, sliding_window, yellow_filter
 
 
 # Define a class to receive the characteristics of each line detection
@@ -67,7 +67,7 @@ class Line():
         return self.best_fit
 
 
-def DrawArea(undist, warped_size, dst, src, left_fit, right_fit):
+def draw_area(undist, warped_size, dst, src, left_fit, right_fit):
     Minv = cv2.getPerspectiveTransform(dst, src)
     ploty = np.linspace(0, warped_size[0] - 1, warped_size[0])
     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
@@ -90,9 +90,6 @@ def DrawArea(undist, warped_size, dst, src, left_fit, right_fit):
     result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
 
     return result
-
-
-
 
 
 def SkipSlidingWindow(img, left_fit, right_fit):
@@ -143,6 +140,7 @@ def SkipSlidingWindow(img, left_fit, right_fit):
 
     return ret
 
+
 def curvature(warped_size, left_fit, right_fit):
     ploty = np.linspace(0, warped_size[0] - 1, warped_size[0])
     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
@@ -168,15 +166,16 @@ def curvature(warped_size, left_fit, right_fit):
     offset = (warped_size[1]/2 - xmean) * xm_per_pix # +: car in right; -: car in left side
     return curv, offset
 
+
 def draw_curv(image):
 
-    img_size = [image.shape[1], image.shape[0]]
-    img_shape = (image.shape[0], image.shape[1])
+    img_size = [1280, 720]
+    img_shape = (720, 1280, 3)
 
-    undist_img = Undistort(image, mtx, dist)
+    undist_img = undistort(image, mtx, dist)
     binary = img2binary(undist_img)
-    warped, src, dst = warp(binary)
-    ret = SlidingWindow(warped)
+    warped = warp(binary)
+    ret = sliding_window(warped)
     left_fit, right_fit = ret['left_fit'], ret['right_fit']
     ploty = np.linspace(0, img_shape[0] - 1, img_shape[0])
     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
@@ -187,13 +186,11 @@ def draw_curv(image):
     # pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
     # pts = np.hstack((pts_left, pts_right))
     # cv2.fillPoly(color_warp, np.int_([pts]), (0,255,0))
-    warped_color, src, dst = warp(undist_img)
+    warped_color = warp(undist_img)
     plt.plot(left_fitx, ploty, color='green')
     plt.plot(right_fitx, ploty, color='green')
 
-    return  warped_color
-
-
+    return warped_color
 
 
 def process_image(image):
@@ -201,15 +198,15 @@ def process_image(image):
     global mtx, dist
     global left_line, right_line
 
-    img_size = [image.shape[1], image.shape[0]]
-    img_shape = (image.shape[0], image.shape[1])
+    img_size = [1280, 720]
+    img_shape = (720, 1280, 3)
 
-    undist_img = Undistort(image, mtx, dist)
+    undist_img = undistort(image, mtx, dist)
     binary = img2binary(undist_img)
     warped = warp(binary)
 
     if not (left_line.detected or right_line.detected):
-        ret = SlidingWindow(warped)
+        ret = sliding_window(warped)
         left_fit = ret['left_fit']
         right_fit = ret['right_fit']
         left_fit = left_line.add_fit(left_fit)
@@ -226,7 +223,7 @@ def process_image(image):
         line_curv, offset = curvature(img_size, left_fit, right_fit)
         # left_curvature - right_curvature diff too much or left/right curvature is too small
         if (abs(line_curv[1] - line_curv[2]) > 1000) or (line_curv[1] < 600) or (line_curv[2] < 600):
-            ret = SlidingWindow(warped)
+            ret = sliding_window(warped)
             left_fit = ret['left_fit']
             right_fit = ret['right_fit']
             left_line.previousfit = [np.array([])]
@@ -265,7 +262,7 @@ def process_image(image):
             right_line.detected = False
 
 
-    result = DrawArea(undist_img, img_shape, dst, src, left_fit, right_fit)
+    result = draw_area(undist_img, img_shape, dst, src, left_fit, right_fit)
 
     font = cv2.FONT_HERSHEY_SIMPLEX  # 使用默认字体
     text1 = 'Radius of Curvature = %d(m), l=%d(m), r=%d(m)'
@@ -277,30 +274,31 @@ def process_image(image):
                               (60, 130), font, 1.0, (255, 255, 255), thickness=2)
     return result
 
+
+
+img_size = [1280, 720]  # width, height
+src = np.float32(
+    [[575, 460],
+     [283.33, 660],
+     [1026.66, 660],
+     [710, 460]])
+dst = np.float32(
+    [[395, 0],
+     [395, 660],
+     [955, 660],
+     [955, 0]])
+
 # import Camera Calibration Parameters
 dist_pickle = "./wide_dist_pickle.p"
 with open(dist_pickle, mode="rb") as f:
     CalData = pickle.load(f)
 mtx, dist = CalData["mtx"], CalData["dist"]
-frame = 6 # latest frames number of good detection
-left_line = Line(n = frame)
-right_line = Line(n = frame)
+frame = 10  # latest frames number of good detection
+# left_line = Line(n=frame)
+# right_line = Line(n=frame)
 
-# Test on images
-i = 1
-plt.figure(figsize=(16,9))
-for image in glob.glob('./test_images/test_ch*.jpg'):
-    image = mpimg.imread(image)
-    plt.subplot(4,2,i)
-    line = draw_curv(image)
-    plt.imshow(line)
-    plt.axis('off')
+debug_img()
 
-    plt.subplot(4,2,i+1)
-    result = process_image(image)
-    plt.imshow(result)
-    plt.axis('off')
-    i += 2
 
 # TODO: 3rd polynominal. equidistant
 '''

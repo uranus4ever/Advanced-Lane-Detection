@@ -6,7 +6,7 @@ import glob
 import pickle
 import matplotlib.image as mpimg
 
-image = mpimg.imread('./test_images/test5.jpg')
+# image = mpimg.imread('./test_images/test_ch5.jpg')
 img_size = [1280, 720]  # width, height
 src = np.float32(
     [[575, 460],
@@ -35,18 +35,23 @@ def warp(img):
 
 def draw_lines(points):
     points_t = list(map(list, points))
-    lines = [[points_t[0] + points_t[1]], \
-            [points_t[1] + points_t[2]], \
-            [points_t[2] + points_t[3]], \
+    lines = [[points_t[0] + points_t[1]],
+            [points_t[1] + points_t[2]],
+            [points_t[2] + points_t[3]],
             [points_t[3] + points_t[0]]]
     for line in lines:
         for x1, y1, x2, y2 in line:
             plt.plot((x1, x2), (y1, y2), color='r', linewidth=2)
 
 
-# TODO: change mpimg.imrad into cv2.imread
-def Undistort(img, mtx, dist):
-    # Assume input img is mpimg.imread (RGB)
+def undistort(img, mtx, dist):
+    """
+    Use cv2.undistort to 
+    :param img: Assuming input img is RGB (imread by mpimg)
+    :param mtx: camera calibration parameter
+    :param dist: camera calibration parameter
+    :return: Undistorted img
+    """
     # transform to BGR to fit cv2.imread
     img_BGR = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     dst_img = cv2.undistort(img_BGR, mtx, dist, None, mtx)
@@ -99,7 +104,15 @@ def img2binary(img, s_thresh=(100, 255), sx_thresh=(20, 100)):
     s_channel = hls[:, :, 2]
     schannel_bin = np.zeros_like(s_channel)
     schannel_bin[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
+
+    # Yellow lane filter
+    yellow2white = np.zeros_like(img)
+    r_th, g_th, b_th = 170, 50, 0
+    threshold = (img[:, :, 0] > r_th) & (img[:, :, 1] > g_th) & (img[:, :, 2] > b_th)
+    yellow2white[threshold] = [255, 255, 255]
+
     # Stack each channel to view their individual contributions in green and blue respectively
+    # green - gradient thres; blue - color channel thres
     # This returns a stack of the two binary images, whose components you can see as different colors
     color_binary = np.dstack((np.zeros_like(abs_bin), abs_bin, schannel_bin)) * 255
 
@@ -107,7 +120,7 @@ def img2binary(img, s_thresh=(100, 255), sx_thresh=(20, 100)):
     combined_binary = np.zeros_like(abs_bin)
     combined_binary[(schannel_bin == 1) | (((mag_bin == 1) & (dir_bin == 1)) | abs_bin == 1)] = 1
 
-    return combined_binary
+    return combined_binary, abs_bin
 
 
 def window_mask(width, height, img_ref, center, level):
@@ -156,7 +169,7 @@ def find_window_centroids(warped, window_width, window_height, margin):
     return window_centroids
 
 
-def SlidingWindow(img):
+def sliding_window(img):
     # Assuming you have created a warped binary image called "binary_warped"
     binary_warped = img
     # Assuming you have created a warped binary image called "binary_warped"
@@ -257,15 +270,15 @@ def visualize():
     plt.title('Warped image with dest. points', fontsize=12)
 
     # Plot Perspective_Binary
-    plt.figure(figsize=(8,2))
-    plt.subplot(121)
-    plt.imshow(binary, cmap='gray')
-    draw_lines(src)
-    plt.title('Threshold Image', fontsize=12)
-    plt.subplot(122)
-    plt.imshow(warped, cmap='gray')
-    draw_lines(dst)
-    plt.title('Warped image with dest. points drawn', fontsize=12)
+    # plt.figure(figsize=(8,2))
+    # plt.subplot(121)
+    # plt.imshow(binary, cmap='gray')
+    # draw_lines(src)
+    # plt.title('Threshold Image', fontsize=12)
+    # plt.subplot(122)
+    # plt.imshow(warped, cmap='gray')
+    # draw_lines(dst)
+    # plt.title('Warped image with dest. points drawn', fontsize=12)
 
     # Plot historgram
     # plt.figure(figsize=(9,4))
@@ -275,152 +288,68 @@ def visualize():
     # plt.ylabel('Counts')
 
 
-'''
-# If we found any window centers
-if len(window_centroids) > 0:
+def yellow_filter(img, r_th=170, g_th=50, b_th=0):
+    yellow2white = np.zeros_like(img)
+    threshold = (img[:, :, 0] > r_th) & (img[:, :, 1] > g_th) & (img[:, :, 2] > b_th)
+    yellow2white[threshold] = [255, 255, 255]
 
-    # Points used to draw all the left and right windows
-    l_points = np.zeros_like(warped)
-    r_points = np.zeros_like(warped)
+    # plt.figure(figsize=(6,8))
+    # plt.subplot(211)
+    # plt.imshow(img)
+    # plt.subplot(212)
+    # plt.imshow(yellow2white)
 
-    # Go through each level and draw the windows
-    for level in range(0, len(window_centroids)):
-        # Window_mask is a function to draw window areas
-        l_mask = window_mask(window_width, window_height, warped, window_centroids[level][0], level)
-        r_mask = window_mask(window_width, window_height, warped, window_centroids[level][1], level)
-        # Add graphic points from window mask here to total pixels found
-        l_points[(l_points == 255) | ((l_mask == 1))] = 255
-        r_points[(r_points == 255) | ((r_mask == 1))] = 255
-
-    # Draw the results
-    template = np.array(r_points + l_points, np.uint8)  # add both left and right window pixels together
-    zero_channel = np.zeros_like(template)  # create a zero color channel
-    template = np.array(cv2.merge((zero_channel, template, zero_channel)), np.uint8)  # make window pixels green
-    warpage = np.array(cv2.merge((warped*255, warped*255, warped*255)),
-                       np.uint8)  # making the original road pixels 3 color channels
-    output = cv2.addWeighted(warpage, 1, template, 0.5, 0.0)  # overlay the orignal road image with window results
-
-# If no window centers found, just display orginal road image
-else:
-    output = np.array(cv2.merge((warped, warped, warped)), np.uint8)
-'''
+    return yellow2white
 
 
+def white_filter(img, r_th=(170, 255)):
+    R = img[:,:,0]
+    bin_r = np.zeros_like(R)
+    bin_r[(R > r_th[0]) & (R <= r_th[1])] = 1
+    return bin_r
 
+i = 1
+plt.figure(figsize=(22, 8))
+for image in glob.glob('./test_images/test_ch*.jpg'):
+    img = mpimg.imread(image)
 
+    wh1 = white_filter(img, r_th=(170, 255))
+    wh2 = white_filter(img, r_th=(185, 255))
 
+    plt.subplot(3, 6, i)
+    plt.imshow(img)
+    plt.axis('off')
 
+    plt.subplot(3, 6, i + 6)
+    plt.imshow(wh1, cmap='gray')
+    plt.axis('off')
 
+    plt.subplot(3, 6, i + 12)
+    plt.imshow(wh2, cmap='gray')
+    plt.axis('off')
+    i += 1
 
+def debug_img():
+    # Test on images
+    i = 1
+    plt.figure(figsize=(22, 8))
+    for image in glob.glob('./test_images/test_ch*.jpg'):
+        image = mpimg.imread(image)
+        new_img = np.zeros_like(image)
+        com1, abs_bin1 = img2binary(image, s_thresh=(100, 255), sx_thresh=(20, 100))
+        com2, abs_bin2 = img2binary(image, s_thresh=(100, 255), sx_thresh=(50, 100))
+        yellow2white = yellow_filter(image)
+        # new_img[abs_bin == 1  ] = 1
 
-# # Assuming you have created a warped binary image called "binary_warped"
-# binary_warped = warped
-# # Assuming you have created a warped binary image called "binary_warped"
-# # Take a histogram of the bottom half of the image
-# histogram = np.sum(binary_warped[int(binary_warped.shape[0]/2):,:], axis=0)
-# # Create an output image to draw on and  visualize the result
-# out_img = np.dstack((binary_warped, binary_warped, binary_warped))*255
-# # Find the peak of the left and right halves of the histogram
-# # These will be the starting point for the left and right lines
-# midpoint = np.int(histogram.shape[0]/2)
-# leftx_base = np.argmax(histogram[:midpoint])
-# rightx_base = np.argmax(histogram[midpoint:]) + midpoint
-#
-# # Choose the number of sliding windows
-# nwindows = 9
-# # Set height of windows
-# window_height = np.int(binary_warped.shape[0]/nwindows)
-# # Identify the x and y positions of all nonzero pixels in the image
-# nonzero = binary_warped.nonzero()
-# nonzeroy = np.array(nonzero[0])
-# nonzerox = np.array(nonzero[1])
-# # Current positions to be updated for each window
-# leftx_current = leftx_base
-# rightx_current = rightx_base
-# # Set the width of the windows +/- margin
-# margin = 58
-# # Set minimum number of pixels found to recenter window
-# minpix = 65
-# # Create empty lists to receive left and right lane pixel indices
-# left_lane_inds = []
-# right_lane_inds = []
-#
-# # Step through the windows one by one
-# for window in range(nwindows):
-#     # Identify window boundaries in x and y (and right and left)
-#     win_y_low = binary_warped.shape[0] - (window+1)*window_height
-#     win_y_high = binary_warped.shape[0] - window*window_height
-#     win_xleft_low = leftx_current - margin
-#     win_xleft_high = leftx_current + margin
-#     win_xright_low = rightx_current - margin
-#     win_xright_high = rightx_current + margin
-#     # Draw the windows on the visualization image
-#     cv2.rectangle(out_img,(win_xleft_low,win_y_low),(win_xleft_high,win_y_high),
-#     (0,255,0), 2)
-#     cv2.rectangle(out_img,(win_xright_low,win_y_low),(win_xright_high,win_y_high),
-#     (0,255,0), 2)
-#     # Identify the nonzero pixels in x and y within the window
-#     good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) &
-#     (nonzerox >= win_xleft_low) &  (nonzerox < win_xleft_high)).nonzero()[0]
-#     good_right_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) &
-#     (nonzerox >= win_xright_low) &  (nonzerox < win_xright_high)).nonzero()[0]
-#     # Append these indices to the lists
-#     left_lane_inds.append(good_left_inds)
-#     right_lane_inds.append(good_right_inds)
-#     # If you found > minpix pixels, recenter next window on their mean position
-#     if len(good_left_inds) > minpix:
-#         leftx_current = np.int(np.mean(nonzerox[good_left_inds]))
-#     if len(good_right_inds) > minpix:
-#         rightx_current = np.int(np.mean(nonzerox[good_right_inds]))
-#
-# # Concatenate the arrays of indices
-# left_lane_inds = np.concatenate(left_lane_inds)
-# right_lane_inds = np.concatenate(right_lane_inds)
-#
-# # Extract left and right line pixel positions
-# leftx = nonzerox[left_lane_inds]
-# lefty = nonzeroy[left_lane_inds]
-# rightx = nonzerox[right_lane_inds]
-# righty = nonzeroy[right_lane_inds]
-#
-# # Fit a second order polynomial to each
-# left_fit = np.polyfit(lefty, leftx, 2)
-# right_fit = np.polyfit(righty, rightx, 2)
+        plt.subplot(3, 6, i)
+        plt.imshow(image)
+        plt.axis('off')
 
+        plt.subplot(3, 6, i + 6)
+        plt.imshow(com1, cmap='gray')
+        plt.axis('off')
 
-
-
-
-
-# Visualization Finding the lines
-# # Generate x and y values for plotting
-# ploty = np.linspace(0, warped.shape[0]-1, warped.shape[0] )
-# left_fitx = left_fit[0]*ploty**2 + left_fit[1]*ploty + left_fit[2]
-# right_fitx = right_fit[0]*ploty**2 + right_fit[1]*ploty + right_fit[2]
-# out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
-# out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
-# plt.imshow(out_img)
-# plt.plot(left_fitx, ploty, color='yellow')
-# plt.plot(right_fitx, ploty, color='yellow')
-# plt.xlim(0, 1280)
-# plt.ylim(720, 0)
-# plt.show()
-# Define conversions in x and y from pixels space to meters
-# ym_per_pix = 30/720 # meters per pixel in y dimension
-# xm_per_pix = 3.7/700 # meters per pixel in x dimension
-# y_eval = np.max(ploty)
-# # Fit new polynomials to x,y in world space
-# left_fit_cr = np.polyfit(ploty*ym_per_pix, left_fitx*xm_per_pix, 2)
-# right_fit_cr = np.polyfit(ploty*ym_per_pix, right_fitx*xm_per_pix, 2)
-# # Calculate the new radii of curvature
-# left_curverad = ((1 + (2*left_fit_cr[0]*y_eval*ym_per_pix + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
-# right_curverad = ((1 + (2*right_fit_cr[0]*y_eval*ym_per_pix + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])
-# # Now our radius of curvature is in meters
-# print(left_curverad, 'm', right_curverad, 'm')
-# # Example values: 632.1 m    626.2 m
-
-
-# Plot Sliding Window Search - Convoluntion
-# plt.imshow(output)
-# plt.title('window fitting results')
-# plt.show()
+        plt.subplot(3, 6, i + 12)
+        plt.imshow(com2, cmap='gray')
+        plt.axis('off')
+        i += 1
