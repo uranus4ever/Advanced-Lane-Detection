@@ -71,8 +71,8 @@ def img2binary(img, s_thresh=(100, 255), sx_thresh=(20, 100)):
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
     # Gaussian Blur
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)  # kernelsize = 5
-
+    # blur = cv2.GaussianBlur(gray, (5, 5), 0)  # kernel size = 5
+    blur = gray
     # Sobel x
     sobelx = cv2.Sobel(blur, cv2.CV_64F, 1, 0)  # Take the derivative in x
     sobely = cv2.Sobel(blur, cv2.CV_64F, 0, 1)
@@ -120,7 +120,7 @@ def img2binary(img, s_thresh=(100, 255), sx_thresh=(20, 100)):
     combined_binary = np.zeros_like(abs_bin)
     combined_binary[(schannel_bin == 1) | (((mag_bin == 1) & (dir_bin == 1)) | abs_bin == 1)] = 1
 
-    return combined_binary, abs_bin
+    return combined_binary
 
 
 def window_mask(width, height, img_ref, center, level):
@@ -288,68 +288,77 @@ def visualize():
     # plt.ylabel('Counts')
 
 
-def yellow_filter(img, r_th=170, g_th=50, b_th=0):
-    yellow2white = np.zeros_like(img)
-    threshold = (img[:, :, 0] > r_th) & (img[:, :, 1] > g_th) & (img[:, :, 2] > b_th)
-    yellow2white[threshold] = [255, 255, 255]
-
-    # plt.figure(figsize=(6,8))
-    # plt.subplot(211)
-    # plt.imshow(img)
-    # plt.subplot(212)
-    # plt.imshow(yellow2white)
-
-    return yellow2white
-
-
-def white_filter(img, r_th=(170, 255)):
+def color_filter(img, r_th=120, g_th=100, b_th=50):
     R = img[:,:,0]
-    bin_r = np.zeros_like(R)
-    bin_r[(R > r_th[0]) & (R <= r_th[1])] = 1
-    return bin_r
+    G = img[:,:,1]
+    B = img[:,:,2]
+    bin_color = np.zeros_like(R)
+    bin_color[(R >= r_th) & (G >= g_th) & (B >= b_th)] = 1
 
-i = 1
-plt.figure(figsize=(22, 8))
-for image in glob.glob('./test_images/test_ch*.jpg'):
-    img = mpimg.imread(image)
+    return bin_color
 
-    wh1 = white_filter(img, r_th=(170, 255))
-    wh2 = white_filter(img, r_th=(185, 255))
 
-    plt.subplot(3, 6, i)
-    plt.imshow(img)
-    plt.axis('off')
+def combine_bin(img):
+    bin = img2binary(img)
+    bin_color = color_filter(img)
+    com_bin = np.zeros_like(bin_color)
+    com_bin[(bin == 1) & (bin_color == 1)] = 1
 
-    plt.subplot(3, 6, i + 6)
-    plt.imshow(wh1, cmap='gray')
-    plt.axis('off')
+    return com_bin
 
-    plt.subplot(3, 6, i + 12)
-    plt.imshow(wh2, cmap='gray')
-    plt.axis('off')
-    i += 1
 
 def debug_img():
     # Test on images
     i = 1
-    plt.figure(figsize=(22, 8))
+    f, axes = plt.subplots(4, 6, figsize=(11, 7))
+    f.tight_layout()
+    axes_stack = np.hstack(axes)
+
     for image in glob.glob('./test_images/test_ch*.jpg'):
-        image = mpimg.imread(image)
-        new_img = np.zeros_like(image)
-        com1, abs_bin1 = img2binary(image, s_thresh=(100, 255), sx_thresh=(20, 100))
-        com2, abs_bin2 = img2binary(image, s_thresh=(100, 255), sx_thresh=(50, 100))
-        yellow2white = yellow_filter(image)
-        # new_img[abs_bin == 1  ] = 1
+        img = mpimg.imread(image)
 
-        plt.subplot(3, 6, i)
-        plt.imshow(image)
-        plt.axis('off')
+        img_1 = img2binary(img)
+        img_2 = color_filter(img)
+        img_3 = combine_bin(img)
 
-        plt.subplot(3, 6, i + 6)
-        plt.imshow(com1, cmap='gray')
-        plt.axis('off')
+        axes_stack[i-1].imshow(img)
+        axes_stack[i - 1].axis('off')
 
-        plt.subplot(3, 6, i + 12)
-        plt.imshow(com2, cmap='gray')
-        plt.axis('off')
+        axes_stack[i + 5].imshow(img_1, cmap='gray')
+        axes_stack[i + 5].axis('off')
+
+        axes_stack[i + 11].imshow(img_2, cmap='gray')
+        axes_stack[i + 11].axis('off')
+
+        axes_stack[i + 17].imshow(img_3, cmap='gray')
+        axes_stack[i + 17].axis('off')
+
+        plt.subplots_adjust(left=0.1, right=0.9, wspace=0.25, hspace=0.45)
         i += 1
+
+    # (3,1) figure
+    i = 1
+    for image in glob.glob('./test_images/test_ch*.jpg'):
+        plt.figure(figsize=(4, 7))
+        img = mpimg.imread(image)
+        img1 = img2binary(img)
+        img2 = color_filter(img)
+        img3 = combine_bin(img)
+
+        plt.subplot(4,1,i)
+        plt.imshow(img)
+        plt.axis('off')
+
+        plt.subplot(4,1,i+1)
+        plt.imshow(img1, cmap='gray')
+        plt.axis('off')
+
+        plt.subplot(4,1,i+2)
+        plt.imshow(img2, cmap='gray')
+        plt.axis('off')
+
+        plt.subplot(4,1,i+3)
+        plt.imshow(img3, cmap='gray')
+        plt.axis('off')
+
+

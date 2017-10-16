@@ -7,7 +7,7 @@ import pickle
 import matplotlib.image as mpimg
 from moviepy.editor import VideoFileClip
 # from IPython.display import HTML
-from helper import warp, draw_lines, img2binary, undistort, sliding_window, yellow_filter
+from helper import warp, draw_lines, undistort, sliding_window, combine_bin
 
 
 # Define a class to receive the characteristics of each line detection
@@ -173,7 +173,7 @@ def draw_curv(image):
     img_shape = (720, 1280, 3)
 
     undist_img = undistort(image, mtx, dist)
-    binary = img2binary(undist_img)
+    binary = combine_bin(undist_img)
     warped = warp(binary)
     ret = sliding_window(warped)
     left_fit, right_fit = ret['left_fit'], ret['right_fit']
@@ -202,7 +202,7 @@ def process_image(image):
     img_shape = (720, 1280, 3)
 
     undist_img = undistort(image, mtx, dist)
-    binary = img2binary(undist_img)
+    binary = combine_bin(undist_img)
     warped = warp(binary)
 
     if not (left_line.detected or right_line.detected):
@@ -297,7 +297,6 @@ frame = 10  # latest frames number of good detection
 # left_line = Line(n=frame)
 # right_line = Line(n=frame)
 
-debug_img()
 
 
 # TODO: 3rd polynominal. equidistant
