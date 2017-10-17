@@ -7,7 +7,7 @@ import pickle
 import matplotlib.image as mpimg
 from moviepy.editor import VideoFileClip
 # from IPython.display import HTML
-from helper import warp, draw_lines, undistort, sliding_window, combine_bin
+from helper import warp, undistort, sliding_window, skip_sliding_window, combine_bin
 
 
 # Define a class to receive the characteristics of each line detection
@@ -67,11 +67,9 @@ class Line():
         return self.best_fit
 
 
-def draw_area(undist, warped_size, dst, src, left_fit, right_fit):
+def draw_area(undist, warped_size, dst, src, left_fitx, right_fitx):
     Minv = cv2.getPerspectiveTransform(dst, src)
-    ploty = np.linspace(0, warped_size[0] - 1, warped_size[0])
-    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
-    right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+
     # Create an image to draw the lines on
     warp_zero = np.zeros(warped_size).astype(np.uint8)
     color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
@@ -90,55 +88,6 @@ def draw_area(undist, warped_size, dst, src, left_fit, right_fit):
     result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
 
     return result
-
-
-def SkipSlidingWindow(img, left_fit, right_fit):
-    # Assume you now have a new warped binary image
-    # from the next frame of video (also called "binary_warped")
-    # It's now much easier to find line pixels!
-    binary_warped = img
-    nonzero = binary_warped.nonzero()
-    nonzeroy = np.array(nonzero[0])
-    nonzerox = np.array(nonzero[1])
-    margin = 100
-    left_lane_inds = ((nonzerox > (left_fit[0] * (nonzeroy ** 2) + left_fit[1] * nonzeroy +
-                                   left_fit[2] - margin)) & (nonzerox < (left_fit[0] * (nonzeroy ** 2) +
-                                                                         left_fit[1] * nonzeroy + left_fit[
-                                                                             2] + margin)))
-
-    right_lane_inds = ((nonzerox > (right_fit[0] * (nonzeroy ** 2) + right_fit[1] * nonzeroy +
-                                    right_fit[2] - margin)) & (nonzerox < (right_fit[0] * (nonzeroy ** 2) +
-                                                                           right_fit[1] * nonzeroy + right_fit[
-                                                                               2] + margin)))
-
-    # Again, extract left and right line pixel positions
-    leftx = nonzerox[left_lane_inds]
-    lefty = nonzeroy[left_lane_inds]
-    rightx = nonzerox[right_lane_inds]
-    righty = nonzeroy[right_lane_inds]
-
-    # If little relevant pixels found, return None, indicating ERROR
-    min_inds = 10
-    if lefty.shape[0] < min_inds or righty.shape[0] < min_inds:
-        return None
-
-    # Fit a second order polynomial to each
-    left_fit = np.polyfit(lefty, leftx, 2)
-    right_fit = np.polyfit(righty, rightx, 2)
-    # Generate x and y values for plotting
-    ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
-    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
-    right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
-
-    ret = {}
-    ret['left_fit'] = left_fit
-    ret['right_fit'] = right_fit
-    ret['nonzerox'] = nonzerox
-    ret['nonzeroy'] = nonzeroy
-    ret['left_lane_inds'] = left_lane_inds
-    ret['right_lane_inds'] = right_lane_inds
-
-    return ret
 
 
 def curvature(warped_size, left_fit, right_fit):
@@ -198,9 +147,6 @@ def process_image(image):
     global mtx, dist
     global left_line, right_line
 
-    img_size = [1280, 720]
-    img_shape = (720, 1280, 3)
-
     undist_img = undistort(image, mtx, dist)
     binary = combine_bin(undist_img)
     warped = warp(binary)
@@ -232,7 +178,7 @@ def process_image(image):
             right_fit = right_line.add_fit(right_fit)
             line_curv, offset = curvature(img_shape, left_fit, right_fit)
         else:
-            retSkip = SkipSlidingWindow(warped, left_fit, right_fit)
+            retSkip = skip_sliding_window(warped, left_fit, right_fit)
             # Update only when line detected in current frame
             if retSkip is not None:
                 left_fit = retSkip['left_fit']
@@ -245,7 +191,7 @@ def process_image(image):
                 left_line.detected = False
                 right_line.detected = False
 
-        ret = SkipSlidingWindow(warped, left_fit, right_fit)
+        ret = skip_sliding_window(warped, left_fit, right_fit)
         left_fit = ret['left_fit']
         right_fit = ret['right_fit']
 
@@ -261,8 +207,8 @@ def process_image(image):
             left_line.detected = False
             right_line.detected = False
 
-
-    result = draw_area(undist_img, img_shape, dst, src, left_fit, right_fit)
+# TODO: rewrite Line, logic. define left_fitx, right_fitx. (maybe 3 order)
+    result = draw_area(undist_img, img_shape, dst, src, left_fitx, right_fitx)
 
     font = cv2.FONT_HERSHEY_SIMPLEX  # 使用默认字体
     text1 = 'Radius of Curvature = %d(m), l=%d(m), r=%d(m)'
@@ -274,8 +220,7 @@ def process_image(image):
                               (60, 130), font, 1.0, (255, 255, 255), thickness=2)
     return result
 
-
-
+img_shape = (720, 1280)
 img_size = [1280, 720]  # width, height
 src = np.float32(
     [[575, 460],
@@ -294,8 +239,8 @@ with open(dist_pickle, mode="rb") as f:
     CalData = pickle.load(f)
 mtx, dist = CalData["mtx"], CalData["dist"]
 frame = 10  # latest frames number of good detection
-# left_line = Line(n=frame)
-# right_line = Line(n=frame)
+left_line = Line(n=frame)
+right_line = Line(n=frame)
 
 
 
@@ -357,19 +302,17 @@ print(equidistant(pol, -90, plot=True))
 '''
 
 
-# video_output = './output_videos/challenge_output.mp4'
-# gif_output = './output_videos/challenge_output.gif'
-#
-# ## To speed up the testing process you may want to try your pipeline on a shorter subclip of the video
-# ## To do so add .subclip(start_second,end_second) to the end of the line below
-#
-# input_path = './test_videos/challenge_video.mp4'
-#
-# clip1 = VideoFileClip(input_path).subclip(10,16)
-# # clip1 = VideoFileClip(input_path)
-# final_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
-#
-# # final_clip.write_gif(gif_output, fps=25)
-# final_clip.write_videofile(video_output, audio=False)
+video_output = './output_videos/project_1.mp4'
 
+input_path = './test_videos/project_video.mp4'
+
+clip1 = VideoFileClip(input_path)
+# clip1 = VideoFileClip(input_path).subclip(5,10)
+
+final_clip = clip1.fl_image(process_image)  # NOTE: this function expects color images!!
+
+final_clip.write_videofile(video_output, audio=False)
+
+# image = mpimg.imread('./test_images/test_ch5.jpg')
+# new = process_image(image)
 

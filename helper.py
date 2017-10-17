@@ -6,19 +6,6 @@ import glob
 import pickle
 import matplotlib.image as mpimg
 
-# image = mpimg.imread('./test_images/test_ch5.jpg')
-img_size = [1280, 720]  # width, height
-src = np.float32(
-    [[575, 460],
-     [283.33, 660],
-     [1026.66, 660],
-     [710, 460]])
-dst = np.float32(
-    [[395, 0],
-     [395, 660],
-     [955, 660],
-     [955, 0]])
-
 
 def warp(img):
     """
@@ -105,16 +92,10 @@ def img2binary(img, s_thresh=(100, 255), sx_thresh=(20, 100)):
     schannel_bin = np.zeros_like(s_channel)
     schannel_bin[(s_channel >= s_thresh[0]) & (s_channel <= s_thresh[1])] = 1
 
-    # Yellow lane filter
-    yellow2white = np.zeros_like(img)
-    r_th, g_th, b_th = 170, 50, 0
-    threshold = (img[:, :, 0] > r_th) & (img[:, :, 1] > g_th) & (img[:, :, 2] > b_th)
-    yellow2white[threshold] = [255, 255, 255]
-
     # Stack each channel to view their individual contributions in green and blue respectively
     # green - gradient thres; blue - color channel thres
     # This returns a stack of the two binary images, whose components you can see as different colors
-    color_binary = np.dstack((np.zeros_like(abs_bin), abs_bin, schannel_bin)) * 255
+    # color_binary = np.dstack((np.zeros_like(abs_bin), abs_bin, schannel_bin)) * 255
 
     # Combine the two binary thresholds
     combined_binary = np.zeros_like(abs_bin)
@@ -170,6 +151,11 @@ def find_window_centroids(warped, window_width, window_height, margin):
 
 
 def sliding_window(img):
+    """
+    Sliding window search for left and right lane.
+    :param img: birds-eye perspective binary image
+    :return: ret dictionay including fit 
+    """
     # Assuming you have created a warped binary image called "binary_warped"
     binary_warped = img
     # Assuming you have created a warped binary image called "binary_warped"
@@ -244,11 +230,66 @@ def sliding_window(img):
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
 
+    ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
+    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+    right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+
     ret = {'left_fit': left_fit,
            'right_fit': right_fit,
+           'left_fitx': left_fitx,
+           'right_fitx': right_fitx,
            'nonzerox': nonzerox,
            'nonzeroy': nonzeroy,
-           'out_img': out_img,
+           'left_lane_inds': left_lane_inds,
+           'right_lane_inds': right_lane_inds}
+
+    return ret
+
+
+def skip_sliding_window(img, left_fit, right_fit):
+    # Assume you now have a new warped binary image
+    # from the next frame of video (also called "binary_warped")
+    # It's now much easier to find line pixels!
+    binary_warped = img
+    nonzero = binary_warped.nonzero()
+    nonzeroy = np.array(nonzero[0])
+    nonzerox = np.array(nonzero[1])
+    margin = 100
+    left_lane_inds = ((nonzerox > (left_fit[0] * (nonzeroy ** 2) + left_fit[1] * nonzeroy +
+                                   left_fit[2] - margin)) & (nonzerox < (left_fit[0] * (nonzeroy ** 2) +
+                                                                         left_fit[1] * nonzeroy + left_fit[
+                                                                             2] + margin)))
+
+    right_lane_inds = ((nonzerox > (right_fit[0] * (nonzeroy ** 2) + right_fit[1] * nonzeroy +
+                                    right_fit[2] - margin)) & (nonzerox < (right_fit[0] * (nonzeroy ** 2) +
+                                                                           right_fit[1] * nonzeroy + right_fit[
+                                                                               2] + margin)))
+
+    # Again, extract left and right line pixel positions
+    leftx = nonzerox[left_lane_inds]
+    lefty = nonzeroy[left_lane_inds]
+    rightx = nonzerox[right_lane_inds]
+    righty = nonzeroy[right_lane_inds]
+
+    # If little relevant pixels found, return None, indicating ERROR
+    min_inds = 10
+    if lefty.shape[0] < min_inds or righty.shape[0] < min_inds:
+        return None
+
+    # Fit a second order polynomial to each
+    left_fit = np.polyfit(lefty, leftx, 2)
+    right_fit = np.polyfit(righty, rightx, 2)
+    # Generate x and y values for plotting
+    ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
+    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+    right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+
+    ret = {'left_fit': left_fit,
+           'right_fit': right_fit,
+           'left_fitx': left_fitx,
+           'right_fitx': right_fitx,
+           'nonzerox': nonzerox,
+           'nonzeroy': nonzeroy,
            'left_lane_inds': left_lane_inds,
            'right_lane_inds': right_lane_inds}
 
@@ -362,3 +403,16 @@ def debug_img():
         plt.axis('off')
 
 
+if __name__ == "__main__":
+    # image = mpimg.imread('./test_images/test_ch5.jpg')
+    img_size = [1280, 720]  # width, height
+    src = np.float32(
+        [[575, 460],
+         [283.33, 660],
+         [1026.66, 660],
+         [710, 460]])
+    dst = np.float32(
+        [[395, 0],
+         [395, 660],
+         [955, 660],
+         [955, 0]])
