@@ -17,26 +17,26 @@ class Line():
         self.detected = False
         # x values of the last n fits of the line
         self.recent_xfitted = []
-        #average x values of the fitted line over the last n iterations
+        # average x values of the fitted line over the last n iterations
         self.bestx = None
-        #polynomial coefficients averaged over the last n iterations
+        # polynomial coefficients averaged over the last n iterations
         self.best_fit = None
-        #polynomial coefficients for the most recent fit
+        # polynomial coefficients for the most recent fit
         self.current_fit = [np.array([False])]
-        #radius of curvature of the line in some units
+        # radius of curvature of the line in some units
         self.radius_of_curvature = None
-        #distance in meters of vehicle center from the line
+        # distance in meters of vehicle center from the line
         self.line_base_pos = None
-        #difference in fit coefficients between last and new fits
+        # difference in fit coefficients between last and new fits
         self.diffs = np.array([0,0,0], dtype='float')
-        #x values for detected line pixels
+        # x values for detected line pixels
         self.allx = None
-        #y values for detected line pixels
+        # y values for detected line pixels
         self.ally = None
 
         # n is window size of the moving average
         self.n = n
-        # Polynimial coefficients: x = A*y**2 + B*y + C
+        # Polynomial coefficients: x = A*y**2 + B*y + C
         self.A = []
         self.B = []
         self.C = []
@@ -44,8 +44,15 @@ class Line():
         self.A_avg = 0.
         self.B_avg = 0.
         self.C_avg = 0.
+
     def get_fit(self):
         return self.best_fit
+
+    def get_x(self, fit):
+        ploty = np.linspace(0, img_shape[0] - 1, img_shape[0])
+        self.allx = fit[0] * ploty ** 2 + fit[1] * ploty + fit[2]
+        return self.allx
+
     def add_fit(self, fit):
         q_full = len(self.A)
         self.A.append(fit[0])
@@ -67,14 +74,15 @@ class Line():
         return self.best_fit
 
 
-def draw_area(undist, warped_size, dst, src, left_fitx, right_fitx):
+def draw_area(undist, dst, src, left_fitx, right_fitx):
     Minv = cv2.getPerspectiveTransform(dst, src)
 
     # Create an image to draw the lines on
-    warp_zero = np.zeros(warped_size).astype(np.uint8)
+    warp_zero = np.zeros(img_shape[0:2]).astype(np.uint8)
     color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
 
     # Recast the x and y points into usable format for cv2.fillPoly()
+    ploty = np.linspace(0, undist.shape[0] - 1, undist.shape[0])
     pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
     pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
     pts = np.hstack((pts_left, pts_right))
@@ -83,22 +91,20 @@ def draw_area(undist, warped_size, dst, src, left_fitx, right_fitx):
     cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
 
     # Warp the blank back to original image space using inverse perspective matrix (Minv)
-    newwarp = cv2.warpPerspective(color_warp, Minv, (warped_size[1], warped_size[0]))
+    newwarp = cv2.warpPerspective(color_warp, Minv, (img_shape[1], img_shape[0]))
+
     # Combine the result with the original image
-    result = cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
-
-    return result
+    return cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
 
 
-def curvature(warped_size, left_fit, right_fit):
-    ploty = np.linspace(0, warped_size[0] - 1, warped_size[0])
+def curvature(left_fit, right_fit):
+    ploty = np.linspace(0, img_shape[0] - 1, img_shape[0])
     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
     right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
 
     ym_per_pix = 30 / 720  # meters per pixel in y dimension
     xm_per_pix = 3.7 / 600  # meters per pixel in x dimension
     y_eval = np.max(ploty)
-    ploty = np.linspace(0, warped_size[0] - 1, warped_size[0])
     # Fit new polynomials to x,y in world space
     left_fit_cr = np.polyfit(ploty * ym_per_pix, left_fitx * xm_per_pix, 2)
     right_fit_cr = np.polyfit(ploty * ym_per_pix, right_fitx * xm_per_pix, 2)
@@ -112,7 +118,7 @@ def curvature(warped_size, left_fit, right_fit):
     xleft_eval = left_fit[0] * y_eval ** 2 + left_fit[1] * y_eval + left_fit[2]
     xright_eval = right_fit[0] * y_eval ** 2 + right_fit[1] * y_eval + right_fit[2]
     xmean = np.mean((xleft_eval,xright_eval))
-    offset = (warped_size[1]/2 - xmean) * xm_per_pix # +: car in right; -: car in left side
+    offset = (img_shape[1]/2 - xmean) * xm_per_pix # +: car in right; -: car in left side
     return curv, offset
 
 
@@ -144,71 +150,63 @@ def draw_curv(image):
 
 def process_image(image):
 
-    global mtx, dist
+    global mtx, dist, src, dst
     global left_line, right_line
 
     undist_img = undistort(image, mtx, dist)
     binary = combine_bin(undist_img)
-    warped = warp(binary)
+    warped = warp(binary, src, dst)
 
-    if not (left_line.detected or right_line.detected):
+    if (left_line.detected or right_line.detected) is False:
         ret = sliding_window(warped)
-        left_fit = ret['left_fit']
-        right_fit = ret['right_fit']
+        left_fit, left_fitx = ret['left_fit'], ret["left_fitx"]
+        right_fit, right_fitx = ret['right_fit'], ret["right_fitx"]
         left_fit = left_line.add_fit(left_fit)
         right_fit = right_line.add_fit(right_fit)
 
-        line_curv, offset = curvature(img_shape, left_fit, right_fit)
+        line_curv, offset = curvature(left_fit, right_fit)
 
         left_line.detected = True
         right_line.detected = True
-    else:
+
+    else:  # both left and right line detected.
         left_fit = left_line.get_fit()
         right_fit = right_line.get_fit()
 
-        line_curv, offset = curvature(img_size, left_fit, right_fit)
-        # left_curvature - right_curvature diff too much or left/right curvature is too small
-        if (abs(line_curv[1] - line_curv[2]) > 1000) or (line_curv[1] < 600) or (line_curv[2] < 600):
-            ret = sliding_window(warped)
-            left_fit = ret['left_fit']
-            right_fit = ret['right_fit']
-            left_line.previousfit = [np.array([])]
-            right_line.previousfit = [np.array([])]
-            left_fit = left_line.add_fit(left_fit)
-            right_fit = right_line.add_fit(right_fit)
-            line_curv, offset = curvature(img_shape, left_fit, right_fit)
-        else:
-            retSkip = skip_sliding_window(warped, left_fit, right_fit)
-            # Update only when line detected in current frame
-            if retSkip is not None:
-                left_fit = retSkip['left_fit']
-                right_fit = retSkip['right_fit']
-                left_fit = left_line.add_fit(left_fit)
-                right_fit = right_line.add_fit(right_fit)
-                # +: car in right; -: car in left side
-                line_curv, offset = curvature(img_shape, left_fit, right_fit)
-            else:
-                left_line.detected = False
-                right_line.detected = False
-
         ret = skip_sliding_window(warped, left_fit, right_fit)
-        left_fit = ret['left_fit']
-        right_fit = ret['right_fit']
+        left_fit, left_fitx = ret['left_fit'], ret["left_fitx"]
+        right_fit, right_fitx = ret['right_fit'], ret["right_fitx"]
+        line_curv, offset = curvature(left_fit, right_fit)
+        mean_curv, left_curv, right_curv = line_curv[0], line_curv[1], line_curv[2]
 
-        # Update only when line detected in current frame
-        if ret is not None:
-            left_fit = ret['left_fit']
-            right_fit = ret['right_fit']
+        if (abs(left_curv - right_curv) < 500) | ((left_curv > 2500) & (right_curv > 2500)):
             left_fit = left_line.add_fit(left_fit)
             right_fit = right_line.add_fit(right_fit)
-            # +: car in right; -: car in left side
-            line_curv, offset = curvature(img_shape, left_fit, right_fit)
-        else:
+
+
+        else:  # decide to re-search
             left_line.detected = False
             right_line.detected = False
+            left_fit = left_line.get_fit()
+            right_fit = right_line.get_fit()
 
-# TODO: rewrite Line, logic. define left_fitx, right_fitx. (maybe 3 order)
-    result = draw_area(undist_img, img_shape, dst, src, left_fitx, right_fitx)
+
+
+        # # Update only when line detected in current frame
+        # if ret is not None:
+        #     left_fit = ret['left_fit']
+        #     right_fit = ret['right_fit']
+        #     left_fit = left_line.add_fit(left_fit)
+        #     right_fit = right_line.add_fit(right_fit)
+        #     # +: car in right; -: car in left side
+        #     line_curv, offset = curvature(left_fit, right_fit)
+        # else:
+        #     left_line.detected = False
+        #     right_line.detected = False
+
+    left_fitx = left_line.get_x(left_fit)
+    right_fitx = right_line.get_x(right_fit)
+    result = draw_area(undist_img, dst, src, left_fitx, right_fitx)
 
     font = cv2.FONT_HERSHEY_SIMPLEX  # 使用默认字体
     text1 = 'Radius of Curvature = %d(m), l=%d(m), r=%d(m)'
@@ -302,15 +300,13 @@ print(equidistant(pol, -90, plot=True))
 '''
 
 
-video_output = './output_videos/project_1.mp4'
-
+video_output = './output_videos/project_test.mp4'
 input_path = './test_videos/project_video.mp4'
 
-clip1 = VideoFileClip(input_path)
-# clip1 = VideoFileClip(input_path).subclip(5,10)
+# clip1 = VideoFileClip(input_path)
+clip1 = VideoFileClip(input_path).subclip(30,45)
 
-final_clip = clip1.fl_image(process_image)  # NOTE: this function expects color images!!
-
+final_clip = clip1.fl_image(process_image)
 final_clip.write_videofile(video_output, audio=False)
 
 # image = mpimg.imread('./test_images/test_ch5.jpg')
