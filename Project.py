@@ -11,7 +11,7 @@ from helper import warp, undistort, sliding_window, skip_sliding_window, combine
 
 
 # Define a class to receive the characteristics of each line detection
-class Line():
+class Line:
     def __init__(self, n):
         # was the line detected in the last iteration?
         self.detected = False
@@ -52,6 +52,10 @@ class Line():
         ploty = np.linspace(0, img_shape[0] - 1, img_shape[0])
         self.allx = fit[0] * ploty ** 2 + fit[1] * ploty + fit[2]
         return self.allx
+
+    def get_curv(self, fit):
+        self.radius_of_curvature = curvature(fit)
+        return self.radius_of_curvature
 
     def add_fit(self, fit):
         q_full = len(self.A)
@@ -97,63 +101,71 @@ def draw_area(undist, dst, src, left_fitx, right_fitx):
     return cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
 
 
-def curvature(left_fit, right_fit):
-    ploty = np.linspace(0, img_shape[0] - 1, img_shape[0])
-    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
-    right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+def curvature(fit):
+    """
+    calculate curvature from fit parameter
+    :param fit: [A, B, C]
+    :return: radius of curvature (in meters unit)
+    """
 
-    ym_per_pix = 30 / 720  # meters per pixel in y dimension
-    xm_per_pix = 3.7 / 600  # meters per pixel in x dimension
+    fitx = fit[0] * ploty ** 2 + fit[1] * ploty + fit[2]
     y_eval = np.max(ploty)
     # Fit new polynomials to x,y in world space
-    left_fit_cr = np.polyfit(ploty * ym_per_pix, left_fitx * xm_per_pix, 2)
-    right_fit_cr = np.polyfit(ploty * ym_per_pix, right_fitx * xm_per_pix, 2)
-    left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix + left_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
-        2 * left_fit_cr[0])
-    right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / np.absolute(
-        2 * right_fit_cr[0])
-    curv = [np.mean((left_curverad, right_curverad)), left_curverad, right_curverad]
+    fit_cr = np.polyfit(ploty * ym_per_pix, fitx * xm_per_pix, 2)
+
+    curverad = ((1 + (2 * fit_cr[0] * y_eval * ym_per_pix + fit_cr[1]) ** 2) ** 1.5) / \
+                    np.absolute(2 * fit_cr[0])
+
+    # curv = [np.mean((left_curverad, right_curverad)), left_curverad, right_curverad]
     # print(left_curverad, 'm', right_curverad, 'm', curv, 'm')
 
-    xleft_eval = left_fit[0] * y_eval ** 2 + left_fit[1] * y_eval + left_fit[2]
-    xright_eval = right_fit[0] * y_eval ** 2 + right_fit[1] * y_eval + right_fit[2]
-    xmean = np.mean((xleft_eval,xright_eval))
-    offset = (img_shape[1]/2 - xmean) * xm_per_pix # +: car in right; -: car in left side
-    return curv, offset
+    return curverad
 
 
-def draw_curv(image):
+def car_pos(left_fit, right_fit):
+    """
+    Calculate the position of car on left and right lane base (convert to real unit meter)
+    :param left_fit: 
+    :param right_fit: 
+    :return: distance (meters) of car offset from the middle of left and right lane
+    """
+    xleft_eval = left_fit[0] * np.max(ploty) ** 2 + left_fit[1] * np.max(ploty) + left_fit[2]
+    xright_eval = right_fit[0] * np.max(ploty) ** 2 + right_fit[1] * np.max(ploty) + right_fit[2]
+    xmean = np.mean((xleft_eval, xright_eval))
+    offset = (img_shape[1]/2 - xmean) * xm_per_pix  # +: car in right; -: car in left side
 
-    img_size = [1280, 720]
-    img_shape = (720, 1280, 3)
-
-    undist_img = undistort(image, mtx, dist)
-    binary = combine_bin(undist_img)
-    warped = warp(binary)
-    ret = sliding_window(warped)
-    left_fit, right_fit = ret['left_fit'], ret['right_fit']
-    ploty = np.linspace(0, img_shape[0] - 1, img_shape[0])
-    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
-    right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
-    # warp_zero = np.zeros(warped.shape).astype(np.uint8)
-    # color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
-    # pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
-    # pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
-    # pts = np.hstack((pts_left, pts_right))
-    # cv2.fillPoly(color_warp, np.int_([pts]), (0,255,0))
-    warped_color = warp(undist_img)
-    plt.plot(left_fitx, ploty, color='green')
-    plt.plot(right_fitx, ploty, color='green')
-
-    return warped_color
+    return offset
 
 
-def process_image(image):
+# def draw_curv(img):
+#
+#     undist_img = undistort(img, mtx, dist)
+#     binary = combine_bin(undist_img)
+#     warped = warp(binary)
+#     ret = sliding_window(warped)
+#     left_fit, right_fit = ret['left_fit'], ret['right_fit']
+#     ploty = np.linspace(0, img_shape[0] - 1, img_shape[0])
+#     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+#     right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+#     # warp_zero = np.zeros(warped.shape).astype(np.uint8)
+#     # color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
+#     # pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
+#     # pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
+#     # pts = np.hstack((pts_left, pts_right))
+#     # cv2.fillPoly(color_warp, np.int_([pts]), (0,255,0))
+#     warped_color = warp(undist_img)
+#     plt.plot(left_fitx, ploty, color='green')
+#     plt.plot(right_fitx, ploty, color='green')
+#
+#     return warped_color
+
+
+def process_image(img):
 
     global mtx, dist, src, dst
     global left_line, right_line
 
-    undist_img = undistort(image, mtx, dist)
+    undist_img = undistort(img, mtx, dist)
     binary = combine_bin(undist_img)
     warped = warp(binary, src, dst)
 
@@ -163,8 +175,6 @@ def process_image(image):
         right_fit, right_fitx = ret['right_fit'], ret["right_fitx"]
         left_fit = left_line.add_fit(left_fit)
         right_fit = right_line.add_fit(right_fit)
-
-        line_curv, offset = curvature(left_fit, right_fit)
 
         left_line.detected = True
         right_line.detected = True
@@ -176,13 +186,13 @@ def process_image(image):
         ret = skip_sliding_window(warped, left_fit, right_fit)
         left_fit, left_fitx = ret['left_fit'], ret["left_fitx"]
         right_fit, right_fitx = ret['right_fit'], ret["right_fitx"]
-        line_curv, offset = curvature(left_fit, right_fit)
-        mean_curv, left_curv, right_curv = line_curv[0], line_curv[1], line_curv[2]
+        left_curv = left_line.get_curv(left_fit)
+        right_curv = right_line.get_curv(right_fit)
 
+        # check the fit quality by skip_sliding_search
         if (abs(left_curv - right_curv) < 500) | ((left_curv > 2500) & (right_curv > 2500)):
             left_fit = left_line.add_fit(left_fit)
             right_fit = right_line.add_fit(right_fit)
-
 
         else:  # decide to re-search
             left_line.detected = False
@@ -190,19 +200,10 @@ def process_image(image):
             left_fit = left_line.get_fit()
             right_fit = right_line.get_fit()
 
-
-
-        # # Update only when line detected in current frame
-        # if ret is not None:
-        #     left_fit = ret['left_fit']
-        #     right_fit = ret['right_fit']
-        #     left_fit = left_line.add_fit(left_fit)
-        #     right_fit = right_line.add_fit(right_fit)
-        #     # +: car in right; -: car in left side
-        #     line_curv, offset = curvature(left_fit, right_fit)
-        # else:
-        #     left_line.detected = False
-        #     right_line.detected = False
+    left_curv = left_line.get_curv(left_fit)
+    right_curv = right_line.get_curv(right_fit)
+    mean_curv = np.mean([left_curv, right_curv])
+    offset = car_pos(left_fit, right_fit)
 
     left_fitx = left_line.get_x(left_fit)
     right_fitx = right_line.get_x(right_fit)
@@ -212,7 +213,7 @@ def process_image(image):
     text1 = 'Radius of Curvature = %d(m), l=%d(m), r=%d(m)'
     text2 = 'Vehicle is %.2f(m) left of center'
 
-    cv2.putText(result, text1 % (int(line_curv[0]), int(line_curv[1]), int(line_curv[2])),
+    cv2.putText(result, text1 % (int(mean_curv), int(left_curv), int(right_curv)),
                               (60, 100), font, 1.0, (255, 255, 255), thickness=2)
     cv2.putText(result, text2 % (-offset),
                               (60, 130), font, 1.0, (255, 255, 255), thickness=2)
@@ -230,85 +231,30 @@ dst = np.float32(
      [395, 660],
      [955, 660],
      [955, 0]])
+ploty = np.linspace(0, img_shape[0] - 1, img_shape[0])
+ym_per_pix = 30 / 720  # meters per pixel in y dimension
+xm_per_pix = 3.7 / 600  # meters per pixel in x dimension
 
 # import Camera Calibration Parameters
 dist_pickle = "./wide_dist_pickle.p"
 with open(dist_pickle, mode="rb") as f:
     CalData = pickle.load(f)
 mtx, dist = CalData["mtx"], CalData["dist"]
-frame = 10  # latest frames number of good detection
+frame = 4  # latest frames number of good detection
 left_line = Line(n=frame)
 right_line = Line(n=frame)
 
+# video_output = './output_videos/project_test.mp4'
+# input_path = './test_videos/project_video.mp4'
+#
+# # clip1 = VideoFileClip(input_path)
+# clip1 = VideoFileClip(input_path).subclip(30,45)
+#
+# final_clip = clip1.fl_image(process_image)
+# final_clip.write_videofile(video_output, audio=False)
 
-
-# TODO: 3rd polynominal. equidistant
-'''
-#Calculate approximated equidistant to a parabola
-EQUID_POINTS = 25 # Number of points to use for the equidistant approximation
-def equidistant(pol, d, max_l = 1, plot = False):
-    y_pol = np.linspace(0, max_l, num=EQUID_POINTS)
-    x_pol = pol_calc(pol, y_pol)
-    y_pol *= IMAGE_H # Convert y coordinates to [0..223] scale
-    x_m = []
-    y_m = []
-    k_m = []
-    for i in range(len(x_pol)-1):
-        x_m.append((x_pol[i+1]-x_pol[i])/2.0+x_pol[i]) # Calculate polints position between given points
-        y_m.append((y_pol[i+1]-y_pol[i])/2.0+y_pol[i])
-        if x_pol[i+1] == x_pol[i]:
-            k_m.append(1e8) # A vary big number
-        else:
-            k_m.append(-(y_pol[i+1]-y_pol[i])/(x_pol[i+1]-x_pol[i])) # Slope of perpendicular lines
-    x_m = np.array(x_m)
-    y_m = np.array(y_m)
-    k_m = np.array(k_m)
-    #Calculate equidistant points
-    y_eq = d*np.sqrt(1.0/(1+k_m**2))
-    x_eq = np.zeros_like(y_eq)
-    if d >= 0:
-        for i in range(len(x_m)):
-            if k_m[i] < 0:
-                y_eq[i] = y_m[i]-abs(y_eq[i])
-            else:
-                y_eq[i] = y_m[i]+abs(y_eq[i])
-            x_eq[i] = (x_m[i]-k_m[i]*y_m[i])+k_m[i]*y_eq[i]
-    else:
-        for i in range(len(x_m)):
-            if k_m[i] < 0:
-                y_eq[i] = y_m[i]+abs(y_eq[i])
-            else:
-                y_eq[i] = y_m[i]-abs(y_eq[i])
-            x_eq[i] = (x_m[i]-k_m[i]*y_m[i])+k_m[i]*y_eq[i]
-    y_eq /= IMAGE_H # Convert all y coordinates back to [0..1] scale
-    y_pol /= IMAGE_H
-    y_m /= IMAGE_H
-    pol_eq = np.polyfit(y_eq, x_eq, len(pol)-1) # Fit equidistant with a polinomial
-    if plot: #Visualize results
-        plt.plot(x_pol, y_pol, color='red', linewidth=1, label = 'Original line') #Original line
-        plt.plot(x_eq, y_eq, color='green', linewidth=1, label = 'Equidistant') #Equidistant
-        plt.plot(pol_calc(pol_eq, y_pol), y_pol, color='blue',
-                 linewidth=1, label = 'Approximation') #Approximation
-        plt.legend()
-        for i in range(len(x_m)):
-            plt.plot([x_m[i],x_eq[i]], [y_m[i],y_eq[i]], color='black', linewidth=1) #Draw connection lines
-        plt.savefig('readme_img/equid.jpg')
-    return pol_eq
-
-pol = np.array([106.65796008,  -49.57665396,  718.87055435])
-print(equidistant(pol, -90, plot=True))
-'''
-
-
-video_output = './output_videos/project_test.mp4'
-input_path = './test_videos/project_video.mp4'
-
-# clip1 = VideoFileClip(input_path)
-clip1 = VideoFileClip(input_path).subclip(30,45)
-
-final_clip = clip1.fl_image(process_image)
-final_clip.write_videofile(video_output, audio=False)
-
-# image = mpimg.imread('./test_images/test_ch5.jpg')
-# new = process_image(image)
+image = mpimg.imread('./test_images/test_ch5.jpg')
+new = process_image(image)
+plt.figure()
+plt.imshow(new)
 
