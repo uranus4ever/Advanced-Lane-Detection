@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import glob
 import pickle
 import matplotlib.image as mpimg
+from skimage import data, exposure, img_as_float
 
 
 def warp(img, src, dst):
@@ -160,27 +161,26 @@ def find_window_centroids(warped, window_width, window_height, margin):
     return window_centroids
 
 
-def sliding_window(img):
+def sliding_window(binary_warped):
     """
     Sliding window search for left and right lane.
-    :param img: birds-eye perspective binary image
+    :param binary_warped: bird-eye binary image
     :return: ret dictionay including fit 
     """
     # Assuming you have created a warped binary image called "binary_warped"
-    binary_warped = img
-    # Assuming you have created a warped binary image called "binary_warped"
     # Take a histogram of the bottom half of the image
-    histogram = np.sum(binary_warped[hist_top_boundary:, :], axis=0)
+    histogram = np.sum(binary_warped[hist_top_boundary:-60, :], axis=0)
+
     # Create an output image to draw on and  visualize the result
     out_img = np.dstack((binary_warped, binary_warped, binary_warped)) * 255
     # Find the peak of the left and right halves of the histogram
     # These will be the starting point for the left and right lines
     midpoint = np.int(histogram.shape[0] / 2)
     leftx_base = np.argmax(histogram[:midpoint])
-    rightx_base = np.argmax(histogram[midpoint:]) + midpoint
+    rightx_base = np.argmax(histogram[hist_right_start:]) + hist_right_start
 
     # Choose the number of sliding windows
-    nwindows = 8
+    nwindows = 9
     # Set height of windows
     window_height = np.int(binary_warped.shape[0] / nwindows)
     # Identify the x and y positions of all nonzero pixels in the image
@@ -191,9 +191,9 @@ def sliding_window(img):
     leftx_current = leftx_base
     rightx_current = rightx_base
     # Set the width of the windows +/- margin
-    margin = 80
+    margin = 100
     # Set minimum number of pixels found to recenter window
-    minpix = 50
+    minpix = 40
     # Create empty lists to receive left and right lane pixel indices
     left_lane_inds = []
     right_lane_inds = []
@@ -238,6 +238,11 @@ def sliding_window(img):
     rightx = nonzerox[right_lane_inds]
     righty = nonzeroy[right_lane_inds]
 
+    # If little relevant pixels found, return None, indicating ERROR
+    min_inds = 10
+    if lefty.shape[0] < min_inds or righty.shape[0] < min_inds:
+        return None
+
     # Fit a second order polynomial to each
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
@@ -263,11 +268,11 @@ def sliding_window(img):
     return ret
 
 
-def skip_sliding_window(img, left_fit, right_fit):
+def skip_sliding_window(binary_warped, left_fit, right_fit):
     # Assume you now have a new warped binary image
     # from the next frame of video (also called "binary_warped")
     # It's now much easier to find line pixels!
-    binary_warped = img
+
     nonzero = binary_warped.nonzero()
     nonzeroy = np.array(nonzero[0])
     nonzerox = np.array(nonzero[1])
@@ -313,19 +318,69 @@ def skip_sliding_window(img, left_fit, right_fit):
     return ret
 
 
+def refine_equidistant(undistort_color, left_fit_last, right_fit_last, skip=False):
+    """
+    
+    :param img: undistorted color img
+    :param left_fit_last: 
+    :param right_fit_last: 
+    :param skip: 
+    :return: ret_new dictionary
+    """
+    binary = combine_bin(undistort_color)
+    binary_warped = warp(binary, src, dst)
+    if skip is False:  # Sliding_window search
+        ret = sliding_window(binary_warped)
+    else:  # Skip sliding_window search
+        ret = skip_sliding_window(binary_warped, left_fit_last, right_fit_last)
+
+    if ret is None:
+        brighter = gamma_reset(undistort_color, gamma=0.3)
+        binary = img2binary(brighter, s_thresh=(60, 255), sx_thresh=(20, 100))
+        binary_warped = warp(binary, src, dst)
+        if skip is False:
+            ret = sliding_window(binary_warped)
+        else:
+            ret = skip_sliding_window(binary_warped, left_fit_last, right_fit_last)
+
+    left_fit, right_fit = ret["left_fit"], ret["right_fit"]
+    left_fitx, right_fitx = ret["left_fitx"], ret["right_fitx"]
+    left_lane_inds, right_lane_inds = ret["left_lane_inds"], ret["right_lane_inds"]
+    left_pix_num, right_pix_num = len(left_lane_inds), len(right_lane_inds)
+    nonzerox = ret["nonzerox"]
+    # confidence left >= right or mis-detect non-lane in right
+    if (left_pix_num / right_pix_num >= 3) or \
+            (right_pix_num >= 60000):
+        lane_width = right_fitx[-100] - left_fitx[-100]
+        right_fit = np.array(equidistant(left_fit, lane_width, max_l=500))
+        right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+    # if (min(left_pix_num, right_pix_num) < 2000):
+
+    ret_new = {'left_fit': left_fit,
+                'right_fit': right_fit,
+                'left_fitx': left_fitx,
+                'right_fitx': right_fitx,
+                'left_lane_inds': left_lane_inds,
+                'right_lane_inds': right_lane_inds,
+                'nonzerox': nonzerox}
+
+    return ret_new
+
+
 def visualize():
     """Plot the images for README"""
     # Plot the Perspective Transformation
     image = mpimg.imread('./test_images/straight_lines2.jpg')
-    plt.figure(figsize=(8, 2))
+    plt.figure(figsize=(10, 8))
     plt.subplot(121)
     plt.imshow(image)
     draw_lines(src)
     plt.title('Original Image', fontsize=12)
     plt.subplot(122)
-    plt.imshow(warp(image))
+    plt.imshow(warp(image, src, dst))
     draw_lines(dst)
     plt.title('Warped image with dest. points', fontsize=12)
+    plt.show()
 
     # Plot Perspective_Binary
     # plt.figure(figsize=(8,2))
@@ -357,7 +412,7 @@ def color_filter(img, r_th=120, g_th=100, b_th=50):
 
 
 def combine_bin(img, r_th=140, g_th=100, b_th=50,
-                s_thresh=(80, 255), sx_thresh=(20, 100)):
+                s_thresh=(60, 255), sx_thresh=(20, 100)):
     bin_thres = img2binary(img, s_thresh, sx_thresh)
     bin_color = color_filter(img, r_th, g_th, b_th)
 
@@ -367,7 +422,73 @@ def combine_bin(img, r_th=140, g_th=100, b_th=50,
     return com_bin
 
 
-def debug_threshold():
+def pol_calc(pol, x):
+    pol_fit = np.poly1d(pol)  # least square method polynominal fitting (2 orders)
+    return pol_fit(x)  # interpolation according to x
+
+
+def equidistant(pol, distance, max_l=1, plot=False):
+    y_pol = np.linspace(0, max_l, num=EQUID_POINTS)
+    x_pol = pol_calc(pol, y_pol)
+    y_pol *= IMAGE_H  # Convert y coordinates to [0...IMAHE_H] scale
+    x_m = []
+    y_m = []
+    k_m = []
+    for i in range(len(x_pol)-1):
+        x_m.append((x_pol[i+1]-x_pol[i])/2.0+x_pol[i])  # Calculate points position between given points
+        y_m.append((y_pol[i+1]-y_pol[i])/2.0+y_pol[i])
+        if x_pol[i+1] == x_pol[i]:
+            k_m.append(1e8)  # A vary big number
+        else:
+            k_m.append(-(y_pol[i+1]-y_pol[i])/(x_pol[i+1]-x_pol[i]))  # Slope of perpendicular lines
+    x_m = np.array(x_m)
+    y_m = np.array(y_m)
+    k_m = np.array(k_m)
+    # Calculate equidistant points
+    y_eq = distance * np.sqrt(1.0/(1+k_m**2))
+    x_eq = np.zeros_like(y_eq)
+    if distance >= 0:
+        for i in range(len(x_m)):
+            if k_m[i] < 0:
+                y_eq[i] = y_m[i]-abs(y_eq[i])
+            else:
+                y_eq[i] = y_m[i]+abs(y_eq[i])
+            x_eq[i] = (x_m[i]-k_m[i]*y_m[i])+k_m[i]*y_eq[i]
+    else:
+        for i in range(len(x_m)):
+            if k_m[i] < 0:
+                y_eq[i] = y_m[i]+abs(y_eq[i])
+            else:
+                y_eq[i] = y_m[i]-abs(y_eq[i])
+            x_eq[i] = (x_m[i]-k_m[i]*y_m[i])+k_m[i]*y_eq[i]
+    y_eq /= IMAGE_H # Convert all y coordinates back to [0..1] scale
+    y_pol /= IMAGE_H
+    y_m /= IMAGE_H
+    pol_eq = np.polyfit(y_eq, x_eq, len(pol)-1)  # Fit equidistant with a polinomial
+    if plot:  # Visualize results
+        plt.figure()
+        plt.plot(x_pol, y_pol, color='green', linewidth=1, label='Original line')  # Original line
+        plt.plot(x_eq, y_eq, color='red', linewidth=3, label='Equidistant')  # Equidistant
+        plt.plot(pol_calc(pol_eq, y_pol), y_pol, color='blue',
+                 linewidth=1, label='Approximation')  # Approximation
+        plt.legend()
+        for i in range(len(x_m)):
+            plt.plot([x_m[i],x_eq[i]], [y_m[i], y_eq[i]], color='black', linewidth=1)  # Draw connection lines
+
+    return pol_eq
+
+
+def gamma_reset(raw_img, gamma=0.3):
+    """
+    adjust gamma to deal with images too dark or too bright
+    :param raw_img: 
+    :param gamma: <1, to brighten; >1, to darken.
+    :return: 
+    """
+    return exposure.adjust_gamma(raw_img, gamma)
+
+
+def debug_threshold_all():
     # Test on images
     i = 1
     f, axes = plt.subplots(4, 6, figsize=(11, 7))
@@ -396,144 +517,209 @@ def debug_threshold():
         plt.subplots_adjust(left=0.1, right=0.9, wspace=0.25, hspace=0.45)
         i += 1
 
+
+def debug_thres_single(img, r_th=140, g_th=100, b_th=50,
+                s_thresh=(80, 255), sx_thresh=(15, 110)):
     # (3,1) figure
-    i = 1
-    for image in glob.glob('./test_images/test_ch*.jpg'):
-        plt.figure(figsize=(4, 7))
-        img = mpimg.imread(image)
-        img1 = img2binary(img)
-        img2 = color_filter(img)
-        img3 = combine_bin(img)
 
-        plt.subplot(4,1,i)
-        plt.imshow(img)
-        plt.axis('off')
+    plt.figure(figsize=(8, 11))
 
-        plt.subplot(4,1,i+1)
-        plt.imshow(img1, cmap='gray')
-        plt.axis('off')
+    img1 = img2binary(img, s_thresh, sx_thresh)
+    img2 = color_filter(img, r_th, g_th, b_th)
+    img3 = combine_bin(img, r_th, g_th, b_th, s_thresh, sx_thresh)
 
-        plt.subplot(4,1,i+2)
-        plt.imshow(img2, cmap='gray')
-        plt.axis('off')
+    plt.subplot(4,1,1)
+    plt.imshow(img)
+    plt.title('Raw Image')
+    plt.axis('off')
 
-        plt.subplot(4,1,i+3)
-        plt.imshow(img3, cmap='gray')
-        plt.axis('off')
+    plt.subplot(4,1,2)
+    plt.imshow(img1, cmap='gray')
+    plt.title('Gradient & S Channel Binary')
+    plt.axis('off')
+
+    plt.subplot(4,1,3)
+    plt.imshow(img2, cmap='gray')
+    plt.title('Yellow & White Filter')
+    plt.axis('off')
+
+    plt.subplot(4,1,4)
+    plt.imshow(img3, cmap='gray')
+    plt.title('Combine Binary')
+    plt.axis('off')
+
+    plt.show()
 
 
-def debug_img(img):
+def debug_pipeline(img):
     # input img is raw image
     # import Camera Calibration Parameters
+
+    undist_img = undistort(img, mtx, dist)
+    binary = combine_bin(undist_img)
+    warped = warp(binary, src, dst)
+    warped_color = warp(undist_img, src, dst)
+    ret = sliding_window(warped)
+    ret_new = refine_equidistant(undist_img, None, None, skip=False)
+    left_fit, right_fit = ret["left_fit"], ret["right_fit"]
+    left_fitx, right_fitx = ret["left_fitx"], ret["right_fitx"]
+    left_lane_inds, right_lane_inds = ret["left_lane_inds"], ret["right_lane_inds"]
+
+    left_fit_new, right_fit_new = ret_new["left_fit"], ret_new["right_fit"]
+    left_fitx_new, right_fitx_new = ret_new["left_fitx"], ret_new["right_fitx"]
+
+    print(len(left_lane_inds), len(right_lane_inds))
+    print('left_fit,  left_fit_new')
+    print(left_fit)
+    print(left_fit_new)
+    print('right_fit, right_fit_new')
+    print(right_fit)
+    print(right_fit_new)
+
+    out_img = ret["out_img"]
+    binary_warped = warped
+    histogram = np.sum(binary_warped[hist_top_boundary:-80, :], axis=0)
+    ploty = np.linspace(0, 720 - 1, 720)
+    final = draw_area(undist_img, dst, src, left_fitx_new, right_fitx_new)
+
+    plt.figure(figsize=(16, 8))
+    plt.subplot(231)
+    plt.imshow(img)
+    plt.subplot(234)
+    plt.imshow(binary, cmap='gray')
+    plt.subplot(232)
+    plt.plot(histogram)
+    plt.xlim(0,1280)
+
+    plt.subplot(235)
+    plt.imshow(out_img)
+    plt.plot(left_fitx, ploty, color='yellow')
+    plt.plot(right_fitx, ploty, color='yellow', label='Ori')
+    plt.plot(left_fitx_new, ploty, color='fuchsia')
+    plt.plot(right_fitx_new, ploty, color='fuchsia', label='Eq')
+    plt.xlim(0, 1280)
+    plt.ylim(720, 0)
+    plt.legend(loc='upper left')
+
+    plt.subplot(233)
+    plt.imshow(warped_color)
+    plt.plot(left_fitx_new, ploty, color='green')
+    plt.plot(right_fitx_new, ploty, color='green')
+    plt.xlim(0, 1280)
+    plt.ylim(720, 0)
+
+    plt.subplot(236)
+    plt.imshow(final)
+    plt.show()
+
+    return
+
+
+def eq_debug(ret, ret_new):
+    left_fit, right_fit = ret["left_fit"], ret["right_fit"]
+    left_fitx, right_fitx = ret["left_fitx"], ret["right_fitx"]
+    left_lane_inds, right_lane_inds = ret["left_lane_inds"], ret["right_lane_inds"]
+
+    left_fit_new, right_fit_new = ret_new["left_fit"], ret_new["right_fit"]
+    left_fitx_new, right_fitx_new = ret_new["left_fitx"], ret_new["right_fitx"]
+    l, r = left_fitx, right_fitx
+    l_new, r_new = left_fitx_new, right_fitx_new
+    ploty = np.linspace(0, 720 - 1, 720)
+    plt.figure()
+    plt.plot(l_new, -ploty, r_new, -ploty, color='red', linewidth=3, label='Equidistant')  # Equidistant
+    plt.plot(l, -ploty, r, -ploty, color='green', linewidth=1, label='Original line')  # Original line
+    plt.xlim(0,1280)
+    plt.ylim(-720,0)
+    plt.legend()
+
+    return
+
+
+def gamma_debug():
+    img_dark = mpimg.imread('./test_images/test_ch6.jpg')
+    img_light = mpimg.imread('./test_images/test_ch2.jpg')
+    gam1 = exposure.adjust_gamma(img_dark, 0.3)
+    gam2 = exposure.adjust_gamma(img_light, 2)
+
+    plt.figure('adjust_gamma', figsize=(10, 4))
+    plt.subplot(221)
+    plt.title('origin dark image')
+    plt.imshow(img_dark)
+    plt.axis('off')
+
+    plt.subplot(222)
+    plt.title('gamma=0.3')
+    plt.imshow(gam1)
+    plt.axis('off')
+
+    plt.subplot(223)
+    plt.title('origin light image')
+    plt.imshow(img_light)
+    plt.axis('off')
+
+    plt.subplot(224)
+    plt.title('gamma=2')
+    plt.imshow(gam2)
+    plt.axis('off')
+    plt.show()
+
+
+def draw_area(undist, dst, src, left_fitx, right_fitx):
+    img_shape = (720, 1280)
+    Minv = cv2.getPerspectiveTransform(dst, src)
+
+    # Create an image to draw the lines on
+    warp_zero = np.zeros(img_shape[0:2]).astype(np.uint8)
+    color_warp = np.dstack((warp_zero, warp_zero, warp_zero))
+
+    # Recast the x and y points into usable format for cv2.fillPoly()
+    ploty = np.linspace(0, 720 - 1, 720)
+    pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
+    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
+    pts = np.hstack((pts_left, pts_right))
+
+    # Draw the lane onto the warped blank image
+    cv2.fillPoly(color_warp, np.int_([pts]), (0, 255, 0))
+
+    # Warp the blank back to original image space using inverse perspective matrix (Minv)
+    newwarp = cv2.warpPerspective(color_warp, Minv, (img_shape[1], img_shape[0]))
+
+    # Combine the result with the original image
+    return cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
+
+hist_top_boundary = 320  # boundary value of y axis
+hist_left_start = 200
+hist_right_start = 800
+# Calculate approximated equidistant to a parabola
+EQUID_POINTS = 25  # Number of points to use for the equidistant approximation
+IMAGE_H = 720
+pol = np.array([100, -50, 750])
+
+ploty = np.linspace(0, 720 - 1, 720)
+
+src = np.float32(
+    [[517, 500],
+     [282, 660],
+     [1032, 660],
+     [773, 500]])
+dst = np.float32(
+    [[395, 100],
+     [395, 660],
+     [955, 660],
+     [955, 100]])
+
+if __name__ == "__main__":
+    img = mpimg.imread('./test_images/test_ch0.jpg')
+    img_size = [1280, 720]  # width, height
+
     dist_pickle = "./wide_dist_pickle.p"
     with open(dist_pickle, mode="rb") as f:
         CalData = pickle.load(f)
     mtx, dist = CalData["mtx"], CalData["dist"]
-    undist_img = undistort(img, mtx, dist)
-    binary = combine_bin(undist_img)
-    warped = warp(binary, src, dst)
-    ret = sliding_window(warped)
-    left_fitx, right_fitx = ret["left_fitx"], ret["right_fitx"]
-    out_img = ret["out_img"]
-    binary_warped = warped
-    histogram = np.sum(binary_warped[hist_top_boundary:, :], axis=0)
 
-    ploty = np.linspace(0, 720 - 1, 720)
-    plt.figure(figsize=(12, 6))
-    plt.subplot(221)
-    plt.imshow(img)
-    plt.subplot(223)
-    plt.imshow(binary, cmap='gray')
-    plt.subplot(222)
-    plt.plot(histogram)
-    plt.subplot(224)
-    plt.imshow(out_img)
-    plt.plot(left_fitx, ploty, color='yellow')
-    plt.plot(right_fitx, ploty, color='yellow')
+    debug_pipeline(mpimg.imread('./test_images/test_ch0.jpg'))
 
+    # pol_eq = equidistant(pol, -90, plot=True)
+    # print(pol_eq)
 
-# TODO: 3rd polynominal. equidistant
-
-# Calculate approximated equidistant to a parabola
-EQUID_POINTS = 25  # Number of points to use for the equidistant approximation
-IMAGE_H = 223
-
-
-def pol_calc(pol, x):
-    pol_fit = np.poly1d(pol)  # least square method polynominal fitting (2 orders)
-    return pol_fit(x)  # interpolation according to x
-
-
-def equidistant(pol, d, max_l=1, plot=False):
-    y_pol = np.linspace(0, max_l, num=EQUID_POINTS)
-    x_pol = pol_calc(pol, y_pol)
-    y_pol *= IMAGE_H  # Convert y coordinates to [0..223] scale
-    x_m = []
-    y_m = []
-    k_m = []
-    for i in range(len(x_pol)-1):
-        x_m.append((x_pol[i+1]-x_pol[i])/2.0+x_pol[i])  # Calculate points position between given points
-        y_m.append((y_pol[i+1]-y_pol[i])/2.0+y_pol[i])
-        if x_pol[i+1] == x_pol[i]:
-            k_m.append(1e8)  # A vary big number
-        else:
-            k_m.append(-(y_pol[i+1]-y_pol[i])/(x_pol[i+1]-x_pol[i])) # Slope of perpendicular lines
-    x_m = np.array(x_m)
-    y_m = np.array(y_m)
-    k_m = np.array(k_m)
-    # Calculate equidistant points
-    y_eq = d*np.sqrt(1.0/(1+k_m**2))
-    x_eq = np.zeros_like(y_eq)
-    if d >= 0:
-        for i in range(len(x_m)):
-            if k_m[i] < 0:
-                y_eq[i] = y_m[i]-abs(y_eq[i])
-            else:
-                y_eq[i] = y_m[i]+abs(y_eq[i])
-            x_eq[i] = (x_m[i]-k_m[i]*y_m[i])+k_m[i]*y_eq[i]
-    else:
-        for i in range(len(x_m)):
-            if k_m[i] < 0:
-                y_eq[i] = y_m[i]+abs(y_eq[i])
-            else:
-                y_eq[i] = y_m[i]-abs(y_eq[i])
-            x_eq[i] = (x_m[i]-k_m[i]*y_m[i])+k_m[i]*y_eq[i]
-    y_eq /= IMAGE_H # Convert all y coordinates back to [0..1] scale
-    y_pol /= IMAGE_H
-    y_m /= IMAGE_H
-    pol_eq = np.polyfit(y_eq, x_eq, len(pol)-1) # Fit equidistant with a polinomial
-    if plot:  # Visualize results
-        plt.figure()
-        plt.plot(x_pol, y_pol, color='red', linewidth=1, label = 'Original line') #Original line
-        plt.plot(x_eq, y_eq, color='green', linewidth=4, label = 'Equidistant') #Equidistant
-        plt.plot(pol_calc(pol_eq, y_pol), y_pol, color='blue',
-                 linewidth=1, label = 'Approximation') #Approximation
-        plt.legend()
-        for i in range(len(x_m)):
-            plt.plot([x_m[i],x_eq[i]], [y_m[i],y_eq[i]], color='black', linewidth=1) #Draw connection lines
-        plt.savefig('readme_img/equid.jpg')
-    return pol_eq
-
-pol = np.array([100,  -50,  750])
-pol_eq = equidistant(pol, -90, plot=True)
-print(pol_eq)
-
-
-hist_top_boundary = 500  # boundary value of y axis
-
-if __name__ == "__main__":
-    img = mpimg.imread('./test_images/test_ch1.jpg')
-    img_size = [1280, 720]  # width, height
-    src = np.float32(
-        [[575, 460],
-         [283.33, 660],
-         [1026.66, 660],
-         [710, 460]])
-    dst = np.float32(
-        [[395, 0],
-         [395, 660],
-         [955, 660],
-         [955, 0]])
-
-    debug_img(mpimg.imread('./test_images/test_ch1.jpg'))
 
