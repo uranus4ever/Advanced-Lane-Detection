@@ -32,10 +32,10 @@ The goals / steps of this project are the following:
 
 Detect the driving lane on complex condition in dynamic videos and calculate lane curvature. The output looks like the following gif:
 
-| Project   | Challenge   | Harder Challenge |
-|:---------:|:-----------:| :---------------:|
-| ![alt text][gif1]   | ![alt text][gif2] | ![alt text][gif3] | 
-| ![video1][video1]   | ![video2][video2] | ![video3][video3] |
+| Project   | Challenge   | 
+|:---------:|:-----------:| 
+| ![alt text][gif1]   | ![challenge gif][gif2] | 
+| ![video1][video1]   | ![video2][video2] |
 
 ---
 
