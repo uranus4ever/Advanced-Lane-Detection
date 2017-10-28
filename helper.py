@@ -5,10 +5,10 @@ import matplotlib.pyplot as plt
 import glob
 import pickle
 import matplotlib.image as mpimg
-from skimage import data, exposure, img_as_float
+from skimage import exposure
 
 
-def warp(img, src, dst):
+def warp(img):
     """
     Perspective Transformation 
     :param img: 
@@ -34,7 +34,7 @@ def draw_lines(points):
 
 def undistort(img, mtx, dist):
     """
-    Use cv2.undistort to 
+    Use cv2.undistort to undistort
     :param img: Assuming input img is RGB (imread by mpimg)
     :param mtx: camera calibration parameter
     :param dist: camera calibration parameter
@@ -105,6 +105,66 @@ def img2binary(img, s_thresh=(100, 255), sx_thresh=(20, 100)):
     return combined_binary
 
 
+def sobelx_filter(img, sx_thresh=(20, 100)):
+    warped = warp(img)
+    # Grayscale image
+    gray = cv2.cvtColor(warped, cv2.COLOR_RGB2GRAY)
+
+    # Sobel x
+    sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0)  # Take the derivative in x
+    abs_sobelx = np.absolute(sobelx)  # Absolute x derivative to accentuate lines away from horizontal
+    scaled_sobel = np.uint8(255 * abs_sobelx / np.max(abs_sobelx))
+
+    # Threshold x gradient
+    abs_bin = np.zeros_like(scaled_sobel)
+    abs_bin[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
+
+    return abs_bin
+
+
+def luv_lab_filter(img, l_thresh=(210, 255), b_thresh=(140, 200), s_thresh=(90, 255), plot=False):
+    # warped = warp(img)
+    warped = img
+
+    l = cv2.cvtColor(warped, cv2.COLOR_RGB2LUV)[:, :, 0]
+    l_bin = np.zeros_like(l)
+    l_bin[(l >= l_thresh[0]) & (l <= l_thresh[1])] = 1
+
+    b = cv2.cvtColor(warped, cv2.COLOR_RGB2Lab)[:, :, 2]
+    b_bin = np.zeros_like(b)
+    b_bin[(b >= b_thresh[0]) & (b <= b_thresh[1])] = 1
+
+    s = cv2.cvtColor(warped, cv2.COLOR_RGB2HLS)[:, :, 2]
+    s_bin = np.zeros_like(s)
+    s_bin[(s >= s_thresh[0]) & (s <= s_thresh[1])] = 1
+
+    combine = np.zeros_like(l)
+    # combine[(l_bin == 1) | ((b_bin == 1) & (s_bin == 1))] = 1
+    combine[(l_bin == 1) | (b_bin == 1)] = 1
+    if plot is True:
+        plt.figure(figsize=(10, 6))
+        plt.subplot(231)
+        plt.imshow(warped)
+        plt.subplot(232)
+        plt.imshow(l_bin, cmap='gray')
+        plt.title('L channel')
+        plt.subplot(233)
+        plt.imshow(b_bin, cmap='gray')
+        plt.title('B channel')
+        plt.subplot(234)
+        plt.imshow(s_bin, cmap='gray')
+        plt.title('S channel')
+        plt.subplot(235)
+        plt.imshow(combine, cmap='gray')
+        plt.title('Combination')
+        plt.subplot(236)
+        plt.imshow(img)
+
+        plt.show()
+
+    return combine
+
+
 # for convolution search method
 def window_mask(width, height, img_ref, center, level):
     output = np.zeros_like(img_ref)
@@ -169,15 +229,15 @@ def sliding_window(binary_warped):
     """
     # Assuming you have created a warped binary image called "binary_warped"
     # Take a histogram of the bottom half of the image
-    histogram = np.sum(binary_warped[hist_top_boundary:-60, :], axis=0)
+    histogram = np.sum(binary_warped[hist_top_boundary:, :], axis=0)
 
     # Create an output image to draw on and  visualize the result
     out_img = np.dstack((binary_warped, binary_warped, binary_warped)) * 255
     # Find the peak of the left and right halves of the histogram
     # These will be the starting point for the left and right lines
     midpoint = np.int(histogram.shape[0] / 2)
-    leftx_base = np.argmax(histogram[:midpoint])
-    rightx_base = np.argmax(histogram[hist_right_start:]) + hist_right_start
+    leftx_base = np.argmax(histogram[hist_left_start:midpoint]) + hist_left_start
+    rightx_base = np.argmax(histogram[hist_right_start:-200]) + hist_right_start
 
     # Choose the number of sliding windows
     nwindows = 9
@@ -191,7 +251,7 @@ def sliding_window(binary_warped):
     leftx_current = leftx_base
     rightx_current = rightx_base
     # Set the width of the windows +/- margin
-    margin = 100
+    margin = 50
     # Set minimum number of pixels found to recenter window
     minpix = 40
     # Create empty lists to receive left and right lane pixel indices
@@ -302,7 +362,7 @@ def skip_sliding_window(binary_warped, left_fit, right_fit):
     left_fit = np.polyfit(lefty, leftx, 2)
     right_fit = np.polyfit(righty, rightx, 2)
     # Generate x and y values for plotting
-    ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
+
     left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
     right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
 
@@ -318,6 +378,31 @@ def skip_sliding_window(binary_warped, left_fit, right_fit):
     return ret
 
 
+def refine(undistort_color, left_fit_last, right_fit_last, skip=False):
+    warped_binary = luv_lab_filter(undistort_color)
+    ret = sliding_window(warped_binary) if skip is False \
+        else skip_sliding_window(warped_binary, left_fit_last, right_fit_last)
+
+    if ret is None:
+        return None
+
+    else:
+        if (len(ret["left_lane_inds"]) < 500) | (len(ret["right_lane_inds"]) < 500):
+            lighter = gamma_reset(undistort_color, gamma=0.4)
+            luv_bin = luv_lab_filter(lighter, l_thresh=(220, 255), b_thresh=(140, 200))
+            sobel_bin = sobelx_filter(lighter, sx_thresh=(20, 100))
+            comb_bin = np.zeros_like(luv_bin)
+            comb_bin[(luv_bin == 1) | (sobel_bin == 1)] = 1
+            ret = sliding_window(comb_bin) if skip is False \
+                else skip_sliding_window(warped_binary, left_fit_last, right_fit_last)
+        if len(ret["nonzerox"]) > 90000:
+            darker = gamma_reset(undistort_color, gamma=4)
+            warped_binary = luv_lab_filter(darker)
+            ret = sliding_window(warped_binary) if skip is False \
+                else skip_sliding_window(warped_binary, left_fit_last, right_fit_last)
+        return ret
+
+
 def refine_equidistant(undistort_color, left_fit_last, right_fit_last, skip=False):
     """
     
@@ -328,7 +413,7 @@ def refine_equidistant(undistort_color, left_fit_last, right_fit_last, skip=Fals
     :return: ret_new dictionary
     """
     binary = combine_bin(undistort_color)
-    binary_warped = warp(binary, src, dst)
+    binary_warped = warp(binary)
     if skip is False:  # Sliding_window search
         ret = sliding_window(binary_warped)
     else:  # Skip sliding_window search
@@ -337,7 +422,7 @@ def refine_equidistant(undistort_color, left_fit_last, right_fit_last, skip=Fals
     if ret is None:
         brighter = gamma_reset(undistort_color, gamma=0.3)
         binary = img2binary(brighter, s_thresh=(60, 255), sx_thresh=(20, 100))
-        binary_warped = warp(binary, src, dst)
+        binary_warped = warp(binary)
         if skip is False:
             ret = sliding_window(binary_warped)
         else:
@@ -349,7 +434,7 @@ def refine_equidistant(undistort_color, left_fit_last, right_fit_last, skip=Fals
     left_pix_num, right_pix_num = len(left_lane_inds), len(right_lane_inds)
     nonzerox = ret["nonzerox"]
     # confidence left >= right or mis-detect non-lane in right
-    if (left_pix_num / right_pix_num >= 3) or \
+    if ((left_pix_num / right_pix_num >= 4) & (right_pix_num < 1000)) or \
             (right_pix_num >= 60000):
         lane_width = right_fitx[-100] - left_fitx[-100]
         right_fit = np.array(equidistant(left_fit, lane_width, max_l=500))
@@ -374,10 +459,14 @@ def visualize():
     plt.figure(figsize=(10, 8))
     plt.subplot(121)
     plt.imshow(image)
+    plt.xlim(0, 1280)
+    plt.ylim(720, 0)
     draw_lines(src)
     plt.title('Original Image', fontsize=12)
     plt.subplot(122)
-    plt.imshow(warp(image, src, dst))
+    plt.imshow(warp(image))
+    plt.xlim(0, 1280)
+    plt.ylim(720, 0)
     draw_lines(dst)
     plt.title('Warped image with dest. points', fontsize=12)
     plt.show()
@@ -412,7 +501,7 @@ def color_filter(img, r_th=120, g_th=100, b_th=50):
 
 
 def combine_bin(img, r_th=140, g_th=100, b_th=50,
-                s_thresh=(60, 255), sx_thresh=(20, 100)):
+                s_thresh=(90, 255), sx_thresh=(20, 100)):
     bin_thres = img2binary(img, s_thresh, sx_thresh)
     bin_color = color_filter(img, r_th, g_th, b_th)
 
@@ -556,14 +645,14 @@ def debug_pipeline(img):
     # import Camera Calibration Parameters
 
     undist_img = undistort(img, mtx, dist)
-    binary = combine_bin(undist_img)
-    warped = warp(binary, src, dst)
-    warped_color = warp(undist_img, src, dst)
-    ret = sliding_window(warped)
+    warped_color = warp(undist_img)
+    warped_binary = luv_lab_filter(undist_img)
+    ret = refine(warped_color, left_fit_last=None, right_fit_last=None)
     ret_new = refine_equidistant(undist_img, None, None, skip=False)
     left_fit, right_fit = ret["left_fit"], ret["right_fit"]
     left_fitx, right_fitx = ret["left_fitx"], ret["right_fitx"]
     left_lane_inds, right_lane_inds = ret["left_lane_inds"], ret["right_lane_inds"]
+    nonzerox = ret["nonzerox"]
 
     left_fit_new, right_fit_new = ret_new["left_fit"], ret_new["right_fit"]
     left_fitx_new, right_fitx_new = ret_new["left_fitx"], ret_new["right_fitx"]
@@ -577,34 +666,36 @@ def debug_pipeline(img):
     print(right_fit_new)
 
     out_img = ret["out_img"]
-    binary_warped = warped
-    histogram = np.sum(binary_warped[hist_top_boundary:-80, :], axis=0)
-    ploty = np.linspace(0, 720 - 1, 720)
-    final = draw_area(undist_img, dst, src, left_fitx_new, right_fitx_new)
 
-    plt.figure(figsize=(16, 8))
+    histogram = np.sum(warped_binary[hist_top_boundary:, :], axis=0)
+    ploty = np.linspace(0, 720 - 1, 720)
+    final = draw_area(undist_img, dst, src, left_fitx, right_fitx)
+
+    plt.figure(figsize=(14, 8))
     plt.subplot(231)
     plt.imshow(img)
     plt.subplot(234)
-    plt.imshow(binary, cmap='gray')
+    plt.imshow(warped_binary, cmap='gray')
+    plt.title('l_ind={}, r_ind={}, non0x={}'.format(len(left_lane_inds), len(right_lane_inds), len(nonzerox)))
     plt.subplot(232)
     plt.plot(histogram)
-    plt.xlim(0,1280)
+    plt.xlim(0, 1280)
 
     plt.subplot(235)
     plt.imshow(out_img)
-    plt.plot(left_fitx, ploty, color='yellow')
-    plt.plot(right_fitx, ploty, color='yellow', label='Ori')
+    plt.plot(left_fitx, ploty, color='yellow', linewidth=2)
+    plt.plot(right_fitx, ploty, color='yellow', linewidth=2, label='Ori')
     plt.plot(left_fitx_new, ploty, color='fuchsia')
     plt.plot(right_fitx_new, ploty, color='fuchsia', label='Eq')
     plt.xlim(0, 1280)
     plt.ylim(720, 0)
     plt.legend(loc='upper left')
+    plt.title('Left_A={:.5f}, Right_A={:.5f}'.format(left_fit[0], right_fit[0]))
 
     plt.subplot(233)
     plt.imshow(warped_color)
-    plt.plot(left_fitx_new, ploty, color='green')
-    plt.plot(right_fitx_new, ploty, color='green')
+    plt.plot(left_fitx, ploty, color='green')
+    plt.plot(right_fitx, ploty, color='green')
     plt.xlim(0, 1280)
     plt.ylim(720, 0)
 
@@ -687,7 +778,88 @@ def draw_area(undist, dst, src, left_fitx, right_fitx):
     # Combine the result with the original image
     return cv2.addWeighted(undist, 1, newwarp, 0.3, 0)
 
-hist_top_boundary = 320  # boundary value of y axis
+
+def draw(img):
+    warped = warp(img)
+    im1 = img2binary(warped)
+    im2 = color_filter(warped, r_th=150, g_th=130, b_th=100)
+    im3 = luv_lab_filter(warped, l_thresh=(210, 255)
+)
+
+    plt.figure(figsize=(12, 8))
+
+    plt.subplot(221)
+    plt.imshow(warped)
+    plt.title('Original')
+    plt.subplot(222)
+    plt.imshow(im1, cmap='gray')
+    plt.title('S Channel & Gradient')
+    plt.subplot(223)
+    plt.imshow(im2, cmap='gray')
+    plt.title('RGB Filter')
+    plt.subplot(224)
+    plt.imshow(im3, cmap='gray')
+    plt.title('LUV & LAB filter')
+
+    plt.show()
+    return
+
+
+def apply_thresholds(image, show=True):
+    img = warp(image)
+
+    s_channel = cv2.cvtColor(img, cv2.COLOR_RGB2HLS)[:, :, 2]
+
+    l_channel = cv2.cvtColor(img, cv2.COLOR_RGB2LUV)[:, :, 0]
+
+    b_channel = cv2.cvtColor(img, cv2.COLOR_RGB2Lab)[:, :, 2]
+
+    # Threshold color channel
+    s_thresh_min = 180
+    s_thresh_max = 255
+    s_binary = np.zeros_like(s_channel)
+    s_binary[(s_channel >= s_thresh_min) & (s_channel <= s_thresh_max)] = 1
+
+    b_thresh_min = 155
+    b_thresh_max = 200
+    b_binary = np.zeros_like(b_channel)
+    b_binary[(b_channel >= b_thresh_min) & (b_channel <= b_thresh_max)] = 1
+
+    l_thresh_min = 225
+    l_thresh_max = 255
+    l_binary = np.zeros_like(l_channel)
+    l_binary[(l_channel >= l_thresh_min) & (l_channel <= l_thresh_max)] = 1
+
+    # color_binary = np.dstack((u_binary, s_binary, l_binary))
+
+    combined_binary = np.zeros_like(s_binary)
+    combined_binary[(l_binary == 1) | (b_binary == 1)] = 1
+
+    if show:
+        # Plotting thresholded images
+        f, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3, sharey='col', sharex='row', figsize=(10, 4))
+        f.tight_layout()
+
+        ax1.set_title('Original Image', fontsize=16)
+        ax1.imshow(image)
+        ax2.set_title('Warped Image', fontsize=16)
+        ax2.imshow(img)
+
+        ax3.set_title('s binary threshold', fontsize=16)
+        ax3.imshow(s_binary, cmap='gray')
+
+        ax4.set_title('b binary threshold', fontsize=16)
+        ax4.imshow(b_binary, cmap='gray')
+
+        ax5.set_title('l binary threshold', fontsize=16)
+        ax5.imshow(l_binary, cmap='gray')
+
+        ax6.set_title('Combined color thresholds', fontsize=16)
+        ax6.imshow(combined_binary, cmap='gray')
+    else:
+        return combined_binary
+
+hist_top_boundary = 100  # boundary value of y axis
 hist_left_start = 200
 hist_right_start = 800
 # Calculate approximated equidistant to a parabola
@@ -697,19 +869,8 @@ pol = np.array([100, -50, 750])
 
 ploty = np.linspace(0, 720 - 1, 720)
 
-src = np.float32(
-    [[517, 500],
-     [282, 660],
-     [1032, 660],
-     [773, 500]])
-dst = np.float32(
-    [[395, 100],
-     [395, 660],
-     [955, 660],
-     [955, 100]])
 
 if __name__ == "__main__":
-    img = mpimg.imread('./test_images/test_ch0.jpg')
     img_size = [1280, 720]  # width, height
 
     dist_pickle = "./wide_dist_pickle.p"
@@ -717,7 +878,13 @@ if __name__ == "__main__":
         CalData = pickle.load(f)
     mtx, dist = CalData["mtx"], CalData["dist"]
 
-    debug_pipeline(mpimg.imread('./test_images/test_ch0.jpg'))
+    src = np.float32([[490, 482], [810, 482],
+                      [1250, 720], [0, 720]])
+    dst = np.float32([[0, 0], [1280, 0],
+                      [1250, 720], [40, 720]])
+
+    img = mpimg.imread('./test_images/test_ch10.jpg')
+    # debug_pipeline(img)
 
     # pol_eq = equidistant(pol, -90, plot=True)
     # print(pol_eq)
