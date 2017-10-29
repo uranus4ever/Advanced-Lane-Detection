@@ -26,17 +26,17 @@ The goals / steps of this project are the following:
 [gif1]: ./Images/project.gif "Project_Video_gif"
 [video2]: ./output_videos/challenge.mp4 "Video2"
 [gif2]: ./Images/challenge.gif "challenge_gif"
-[video3]: ./ "Video3"
-[gif3]: ./Images/ "harder_challenge_gif"
+[video3]: ./output_videos/harder_challenge.mp4 "Video3"
+[gif3]: ./Images/Images/harder_challenge.gif "harder_challenge_gif"
 
 ## Overview
 
-This is the advanced project of [lane detection project](https://github.com/uranus4ever/Lane-Detection). It aims to detect the driving lane in various environment in videos and calculate lane curvature. The output looks like the following gif:
+This is the advanced project of [my lane detection project](https://github.com/uranus4ever/Lane-Detection). It aims to detect the driving lane in various environment in videos and calculate lane curvature. The output looks like the following gif:
 
-| Normal Vidieo   | Challenge Video  | 
-|:---------:|:-----------:| 
-| ![alt text][gif1]   | ![challenge gif][gif2] | 
-| ![video1][video1]   | ![video2][video2] |
+| Normal Vidieo   | Challenge Video  | Harder Challenge Video |
+|:---------:|:-----------:| :------: |
+| ![alt text][gif1]   | ![challenge gif][gif2] | ![harder challenge gif][gif3] |
+| ![video1][video1]   | ![video2][video2] | ![video3][video3]
 
 ## Usage
 `project.py` contains source code to process the video.
