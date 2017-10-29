@@ -25,7 +25,7 @@ The goals / steps of this project are the following:
 [video1]: ./output_videos/project.mp4 "Video"
 [gif1]: ./Images/project.gif "Project_Video_gif"
 [video2]: ./output_videos/challenge.mp4 "Video2"
-[gif2]: ./Images/ "challenge_gif"
+[gif2]: ./Images/challenge.gif "challenge_gif"
 [video3]: ./ "Video3"
 [gif3]: ./Images/ "harder_challenge_gif"
 
@@ -67,7 +67,7 @@ Matrix `mtx` and `dist` from camera calibration are applied to distortion correc
 
 #### 2. **Color Transformation**
 
-This part is the key to the lane detection. Inspired by Udacity cource and [Justin Heaton](https://github.com/JustinHeaton/Advanced-Lane-Finding), I tried RGB, HLS, LUV and LAB color space, in addition, gradient and magnitude, and their combination. As you can see from the following comparison, RGB filter is very sensitive to the threshold and could not lanes from lightful environment. S channel and gradient combination could split lines on the road, but many disturbance also left.
+This part is the key to the lane detection. Inspired by Udacity cource and [Justin Heaton](https://github.com/JustinHeaton/Advanced-Lane-Finding), I tried RGB, HLS, LUV and LAB color space, in addition, gradient and magnitude, and their combination. As you can see from the following comparison, RGB filter is very sensitive to the threshold and could not split lanes from lightful environment. S channel and gradient combination could split lines on the road, but too much disturbance also left.
 
 Finally I found color space transformation method as last figure shows. B channel from LAB space did a fairly good job to identify yellow lanes while L channel from LUV space could detect white lanes.
 
@@ -119,7 +119,7 @@ There are various difficult environment conditions in the video, such as shadows
 
 #### Shortcomings
 
-I spent lots of time on selecting proper color space and applicable threshold for finetuning. For now in `project.mp4` and `challenge.mp4` videos, the lane detection is stable and correctly. However, it is still far from robust to deal with harder_challenge video, in which the light differs extremely and part of lane is invisible for a few seconds. Recalling the behavioral cloning and transfer learning benefits with deep learning neural networks, I missed "smart brain" so much, which can addaptive to various conditions and automatically self-fit.
+I spent lots of time on selecting proper color space and applicable threshold for finetuning. For now in `project.mp4` and `challenge.mp4` videos, the lane detection is stable and correctly. However, it is still far from robust to deal with harder_challenge video, in which the light differs extremely and part of lane is invisible for a few seconds. Recalling the behavioral cloning and transfer learning benefits with deep learning neural networks, I missed "smart brain" so much, which can be adaptive to various conditions and automatically self-fit.
 
 #### Next Plan
 
