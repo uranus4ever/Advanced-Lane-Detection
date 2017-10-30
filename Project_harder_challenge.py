@@ -224,7 +224,8 @@ def curvature(fit):
     :param fit: [A, B, C]
     :return: radius of curvature (in meters unit)
     """
-
+    ym_per_pix = 30 / 720  # meters per pixel in y dimension
+    xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
     fitx = fit[0] * ploty ** 2 + fit[1] * ploty + fit[2]
     y_eval = np.max(ploty)
     # Fit new polynomials to x,y in world space
@@ -245,6 +246,8 @@ def car_pos(left_fit, right_fit):
     """
     xleft_eval = left_fit[0] * np.max(ploty) ** 2 + left_fit[1] * np.max(ploty) + left_fit[2]
     xright_eval = right_fit[0] * np.max(ploty) ** 2 + right_fit[1] * np.max(ploty) + right_fit[2]
+    ym_per_pix = 30 / 720  # meters per pixel in y dimension
+    xm_per_pix = 3.7 / abs(xleft_eval - xright_eval)  # meters per pixel in x dimension
     xmean = np.mean((xleft_eval, xright_eval))
     offset = (img_shape[1]/2 - xmean) * xm_per_pix  # +: car in right; -: car in left side
 
