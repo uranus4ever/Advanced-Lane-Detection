@@ -27,7 +27,7 @@ The goals / steps of this project are the following:
 [video2]: ./output_videos/challenge.mp4 "Video2"
 [gif2]: ./Images/challenge.gif "challenge_gif"
 [video3]: ./output_videos/harder_challenge.mp4 "Video3"
-[gif3]: ./Images/Images/harder_challenge.gif "harder_challenge_gif"
+[gif3]: ./Images/harder_challenge.gif "harder_challenge_gif"
 
 ## Overview
 
@@ -91,13 +91,16 @@ Then I fitted lane lines with a 2nd order polynomial kinda like this:
 
 #### 5. **Curvature and Position Calculation**
 
-To connect pixel unit with real world meter unit, I defined conversions in x and y from pixels space to meters.
+To connect pixel unit with real world meter unit, I defined conversions in x and y from pixels space to meters. In order to calculate precisely, I used detected lane width dynamically.
 ```
-ym_per_pix = 30/720 # meters per pixel in y dimension
-xm_per_pix = 3.7/600 # meters per pixel in x dimension
+ym_per_pix = 30 / 720  # meters per pixel in y dimension
+xm_per_pix = 3.7 / abs(xleft_eval - xright_eval)  # meters per pixel in x dimension
+xmean = np.mean((xleft_eval, xright_eval))
+offset = (img_shape[1]/2 - xmean) * xm_per_pix  # +: car in right; -: car in left side
+
 fit_cr = np.polyfit(ploty * ym_per_pix, fitx * xm_per_pix, 2)
 curverad = ((1 + (2 * fit_cr[0] * y_eval * ym_per_pix + fit_cr[1]) ** 2) ** 1.5) / 
-                    np.absolute(2 * fit_cr[0])
+                np.absolute(2 * fit_cr[0])
 ```
 
 
