@@ -176,7 +176,7 @@ def curvature(fit):
     :param fit: [A, B, C]
     :return: radius of curvature (in meters unit)
     """
-    ym_per_pix = 30 / 720  # meters per pixel in y dimension
+    ym_per_pix = 18 / 720  # meters per pixel in y dimension
     xm_per_pix = 3.7 / 700  # meters per pixel in x dimension
     fitx = fit[0] * ploty ** 2 + fit[1] * ploty + fit[2]
     y_eval = np.max(ploty)
@@ -198,12 +198,25 @@ def car_pos(left_fit, right_fit):
     """
     xleft_eval = left_fit[0] * np.max(ploty) ** 2 + left_fit[1] * np.max(ploty) + left_fit[2]
     xright_eval = right_fit[0] * np.max(ploty) ** 2 + right_fit[1] * np.max(ploty) + right_fit[2]
-    ym_per_pix = 30 / 720  # meters per pixel in y dimension
+    ym_per_pix = 18 / 720  # meters per pixel in y dimension
     xm_per_pix = 3.7 / abs(xleft_eval - xright_eval)  # meters per pixel in x dimension
     xmean = np.mean((xleft_eval, xright_eval))
     offset = (img_shape[1]/2 - xmean) * xm_per_pix  # +: car in right; -: car in left side
 
-    return offset
+    y_eval = np.max(ploty)
+    left_fitx = left_fit[0] * ploty ** 2 + left_fit[1] * ploty + left_fit[2]
+    left_fit_cr = np.polyfit(ploty * ym_per_pix, left_fitx * xm_per_pix, 2)
+    left_curverad = ((1 + (2 * left_fit_cr[0] * y_eval * ym_per_pix + left_fit_cr[1]) ** 2) ** 1.5) / \
+                    np.absolute(2 * left_fit_cr[0])
+
+    right_fitx = right_fit[0] * ploty ** 2 + right_fit[1] * ploty + right_fit[2]
+    right_fit_cr = np.polyfit(ploty * ym_per_pix, right_fitx * xm_per_pix, 2)
+    right_curverad = ((1 + (2 * right_fit_cr[0] * y_eval * ym_per_pix + right_fit_cr[1]) ** 2) ** 1.5) / \
+                    np.absolute(2 * right_fit_cr[0])
+
+    mean_curv = np.mean([left_curverad, right_curverad])
+
+    return offset, mean_curv
 
 
 def warp(img):
@@ -300,10 +313,7 @@ def process_image(img):
     left_fit, left_fitx, left_fity = left.get_fit()
     right_fit, right_fitx, right_fity = right.get_fit()
 
-    left_curv = left.get_curv()
-    right_curv = right.get_curv()
-    mean_curv = np.mean([left_curv, right_curv])
-    offset = car_pos(left_fit, right_fit)
+    offset, mean_curv = car_pos(left_fit, right_fit)
 
     result = draw_area(undist_img, left_fitx, left_fity, right_fitx, right_fity)
 
@@ -341,11 +351,11 @@ frame_num = 15   # latest frames number of good detection
 left = Line()
 right = Line()
 
-video_output = './output_videos/challenge.mp4'
-input_path = './test_videos/challenge_video.mp4'
+video_output = './output_videos/project.mp4'
+input_path = './test_videos/project_video.mp4'
 
 clip1 = VideoFileClip(input_path)
-# clip1 = VideoFileClip(input_path).subclip(0, 4.5)
+# clip1 = VideoFileClip(input_path).subclip(0, 5)
 
 final_clip = clip1.fl_image(process_image)
 final_clip.write_videofile(video_output, audio=False)
